@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wizards — Draft</title>
+<link rel="stylesheet" href="shared/login-overlay.css">
+<link rel="stylesheet" href="shared/card-render.css">
+<link rel="stylesheet" href="shared/hat-avatar.css">
+<style>
+  :root{
+    --bg: #15121c;
+    --bg-vignette: radial-gradient(ellipse at 50% -10%, #241d33 0%, #15121c 55%);
+    --panel: #1e1a29;
+    --panel-2: #241f33;
+    --border: #362c49;
+    --border-soft: #2a2338;
+    --ink-light: #d9d2e8;
+    --ink-muted: #9788b3;
+    --ink-dim: #6f6288;
+    --gold: #c9a24b;
+    --gold-soft: #e2c583;
+    --parchment: #efe6d1;
+    --parchment-dark: #e2d5b5;
+    --parchment-ink: #2c2318;
+    --parchment-chip: #b7a578;
+    --parchment-chip-border: #8f7d4f;
+
+    --c-wizard: #3d5a80;
+    --c-manifestation: #3f6b4a;
+    --c-incantation: #9c3b4f;
+    --c-hex: #5b4b8a;
+    --c-destiny: #b8933a;
+    --c-burden: #5c4a3a;
+
+    --t-fire: #c1462b;
+    --t-earth: #6b5636;
+    --t-water: #2f6f8f;
+    --t-sky: #6fa8c9;
+    --t-shadow: #4a3a5c;
+    --t-light: #b9a666;
+
+    --font-display: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
+    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: 'SF Mono', Consolas, Monaco, monospace;
+  }
+
+  *{ box-sizing: border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background: var(--bg-vignette);
+    color: var(--ink-light);
+    font-family: var(--font-ui);
+    min-height:100vh;
+  }
+
+  /* ---------- Drive sync bar (verborgen wanneer ingebed via de shell) ---------- */
+  #drive-bar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:9px 24px; border-bottom:1px solid var(--border); background:#191423; }
+
+  /* ---------- Knoppen (gedeeld basispatroon, elke module definieert dit zelf) ---------- */
+  .btn{
+    font-family: var(--font-ui);
+    font-size:13px;
+    background: var(--panel-2);
+    color: var(--ink-light);
+    border:1px solid var(--border);
+    padding:8px 14px;
+    border-radius:5px;
+    cursor:pointer;
+    transition: border-color .15s, background .15s;
+    white-space:nowrap;
+  }
+  .btn:hover{ border-color: var(--gold); background:#2a2338; }
+  .btn.primary{ background: linear-gradient(180deg,#2f2743,#251f38); border-color: var(--gold); color: var(--gold-soft); }
+  .btn.primary:hover{ background:#352c4b; }
+  .btn.btn-subtle{ font-size:11.5px; padding:6px 10px; color: var(--ink-dim); opacity:0.8; }
+  .btn.btn-subtle:hover{ opacity:1; }
+  .btn:disabled{ opacity:0.35; cursor:default; pointer-events:none; }
+
+  /* ---------- Layout ---------- */
+  #draft-layout{ display:flex; align-items:flex-start; min-height: calc(100vh - 55px); }
+  #draft-main{ flex:1; min-width:0; padding:28px 32px; }
+  #draft-sidebar{
+    width:300px; flex-shrink:0;
+    border-left:1px solid var(--border);
+    background: var(--panel);
+    min-height: calc(100vh - 55px);
+    padding:16px;
+  }
+
+  #draft-header{
+    display:flex; align-items:baseline; gap:14px; flex-wrap:wrap;
+    margin-bottom:22px;
+  }
+  #draft-title{
+    font-family: var(--font-display); font-size:24px; color: var(--gold-soft);
+    margin:0; letter-spacing:0.3px;
+  }
+  #draft-progress{
+    font-size:12.5px; color: var(--ink-dim);
+  }
+  #draft-header .spacer{ flex:1; }
+
+  /* ---------- Startscherm ---------- */
+  #draft-start{
+    display:flex; flex-direction:column; align-items:flex-start; gap:18px; max-width:520px;
+  }
+  #draft-start p{ color: var(--ink-muted); font-size:14px; line-height:1.5; }
+  .phase-btn-row{ display:flex; gap:14px; flex-wrap:wrap; }
+  .phase-btn{
+    font-family: var(--font-display);
+    font-size:16px;
+    background: var(--panel-2);
+    color: var(--ink-light);
+    border:1px solid var(--border);
+    padding:16px 28px;
+    border-radius:8px;
+    cursor:pointer;
+    transition: border-color .15s, background .15s, transform .1s;
+  }
+  .phase-btn:hover{ border-color: var(--gold); background:#2a2338; transform: translateY(-2px); }
+  .phase-btn.primary{ border-color: var(--gold); color: var(--gold-soft); background: linear-gradient(180deg,#2f2743,#251f38); }
+  .phase-btn:disabled{ opacity:0.35; cursor:default; pointer-events:none; transform:none; }
+
+  /* ---------- Kaartkeuze-scherm ---------- */
+  #draft-offer{
+    display:flex; gap:26px; flex-wrap:wrap; margin-top:10px;
+  }
+  .draft-offer-slot{
+    cursor:pointer;
+    border-radius:14px;
+    padding:8px;
+    border:2px solid transparent;
+    transition: border-color .15s, transform .12s, background .15s;
+  }
+  .draft-offer-slot:hover{ border-color: var(--gold); background: rgba(201,162,75,0.08); transform: translateY(-5px); }
+  #draft-offer-empty{ color: var(--ink-dim); font-size:13.5px; }
+
+  /* ---------- Afsluitscherm ---------- */
+  #draft-done p{ color: var(--ink-muted); font-size:14px; line-height:1.5; max-width:520px; }
+  #draft-done-form{ display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap; }
+  #draft-deck-name{
+    background: var(--bg); border:1px solid var(--border); color: var(--ink-light);
+    padding:9px 12px; border-radius:5px; font-size:13.5px; font-family: var(--font-display);
+    width:260px;
+  }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar-title{
+    font-family: var(--font-display); font-size:15px; color: var(--gold-soft);
+    margin-bottom:10px;
+  }
+  .stats-bar{
+    display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+    border:1px solid var(--border-soft); border-radius:8px; margin-bottom:14px; padding:8px 12px;
+  }
+  .stats-bar .stat-pill{
+    display:flex; align-items:center; gap:6px; background: var(--panel-2);
+    border:1px solid var(--border); border-radius:14px; padding:4px 10px; font-size:11.5px;
+  }
+  .stats-bar .stat-pill .swatch{ width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .stats-bar .stat-pill b{ color: var(--ink-light); font-family: var(--font-mono); }
+  .stats-bar .stat-pill.total{ border-color: var(--gold); color: var(--gold-soft); }
+  .stats-bar .stat-sep{ width:1px; height:16px; background: var(--border); margin:0 2px; }
+
+  .sidebar-section-label{
+    font-size:10.5px; text-transform:uppercase; letter-spacing:0.8px; color: var(--ink-dim);
+    margin:14px 0 6px;
+  }
+  #draft-picklist{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:3px; }
+  #draft-starterlist{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:3px; }
+  .pick-row{
+    display:flex; align-items:center; gap:7px;
+    font-size:12.5px; color: var(--ink-light);
+    padding:4px 7px; border-radius:5px; cursor:default;
+  }
+  .pick-row:hover{ background: var(--panel-2); }
+  .pick-row .swatch{ width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .pick-row .pick-name{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #draft-sidebar-empty{ font-size:12px; color: var(--ink-dim); font-style:italic; padding:6px 0; }
+
+  @media (max-width: 900px){
+    #draft-layout{ flex-direction:column; }
+    #draft-sidebar{ width:100%; min-height:0; border-left:none; border-top:1px solid var(--border); }
+    #draft-main{ padding:20px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="login-overlay">
+  <div class="login-card">
+    <div class="login-sigil">⟡</div>
+    <h2>Wizards — Draft</h2>
+    <p class="login-sub">Log in om verder te gaan.</p>
+
+    <div id="login-form-fields">
+      <label for="login-username">Naam</label>
+      <input type="text" id="login-username" placeholder="Je naam (vrij te kiezen)" autocomplete="off">
+      <label for="login-password">Wachtwoord</label>
+      <input type="password" id="login-password" placeholder="Wachtwoord voor de Drive-sync" autocomplete="off">
+      <button class="btn primary" id="btn-login">Inloggen</button>
+    </div>
+
+    <div id="login-status"></div>
+
+    <div id="login-lastedit" style="display:none;">
+      <p id="login-lastedit-text"></p>
+      <button class="btn primary" id="btn-login-continue">Verdergaan</button>
+    </div>
+  </div>
+</div>
+
+<div id="app">
+  <div id="drive-bar">
+    <span id="drive-user-label"></span>
+    <span id="drive-status"></span>
+  </div>
+
+  <div id="draft-layout">
+    <div id="draft-main">
+      <div id="draft-header">
+        <h1 id="draft-title">Draft</h1>
+        <span id="draft-progress"></span>
+        <span class="spacer"></span>
+        <button class="btn btn-subtle" id="btn-draft-restart" style="display:none;" title="Begin opnieuw, alle keuzes tot nu toe gaan verloren">↺ Herstart draft</button>
+      </div>
+
+      <div id="draft-start">
+        <p>Kies een draft-fase om te starten. Enkel "Apprentice" is momenteel functioneel — "Journeyman" en "Master" volgen later.</p>
+        <div class="phase-btn-row">
+          <button class="phase-btn primary" id="btn-phase-apprentice">Apprentice</button>
+          <button class="phase-btn" id="btn-phase-journeyman" disabled title="Nog niet beschikbaar">Journeyman</button>
+          <button class="phase-btn" id="btn-phase-master" disabled title="Nog niet beschikbaar">Master</button>
+        </div>
+      </div>
+
+      <div id="draft-offer-screen" style="display:none;">
+        <div id="draft-offer"></div>
+        <div id="draft-offer-empty" style="display:none;">Geen draft-legale kaarten meer beschikbaar voor deze keuze.</div>
+      </div>
+
+      <div id="draft-done" style="display:none;">
+        <p>Draft voltooid! Je deck bestaat uit je 3 Destinies, 15 gekozen kaarten, je Burdens, en je starter-kaarten. Geef je deck een naam en exporteer het als .json.</p>
+        <div id="draft-done-form">
+          <input type="text" id="draft-deck-name" placeholder="Docknaam" value="Apprentice Draft">
+          <button class="btn primary" id="btn-draft-export">⬇ Exporteer deck</button>
+        </div>
+      </div>
+    </div>
+
+    <aside id="draft-sidebar">
+      <div class="sidebar-title">Jouw draft</div>
+      <div id="draft-stats" class="stats-bar"></div>
+
+      <div class="sidebar-section-label">Starter-kaarten</div>
+      <ul id="draft-starterlist"></ul>
+
+      <div class="sidebar-section-label">Gepickte kaarten</div>
+      <ul id="draft-picklist"></ul>
+      <div id="draft-sidebar-empty">Nog geen kaarten gepickt.</div>
+    </aside>
+  </div>
+</div>
+
+<script src="shared/card-data.js"></script>
+<script src="shared/card-render.js"></script>
+<script src="shared/card-filters.js"></script>
+<script src="shared/hat-avatar.js"></script>
+<script src="shared/drive-auth.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  let collection = [];
+
+  // ---------- Draft-configuratie ----------
+  // Enkel kaarten met draftLegal === true komen in aanmerking (zie
+  // shared/card-data.js — dit veld werd op 2026-08-15 al specifiek met het
+  // oog op draft-functionaliteit toegevoegd, en moet dus expliciet per
+  // kaart aangevinkt zijn in de Kaartbuilder vóór ze hier kunnen opduiken).
+  const DRAFT_PHASE = "Apprentice";
+  const DESTINY_ROUNDS = 3;
+  const PICKS_PER_DESTINY_ROUND = 5;
+  const BURDEN_ROUNDS = 3;
+  const OFFER_SIZE = 3;
+
+  const DESTINY_TITLES = ["Choose your first Destiny", "Choose your second Destiny", "Choose your Third Destiny"];
+
+  // De volledige picksequentie, data-driven opgebouwd zodat de flow
+  // (3x [1 Destiny + 5 kaarten] + 3x Burden) op één plek gedefinieerd staat.
+  function buildSequence(){
+    const seq = [];
+    for (let d = 0; d < DESTINY_ROUNDS; d++){
+      seq.push({ kind: "destiny", destinyRound: d });
+      for (let p = 0; p < PICKS_PER_DESTINY_ROUND; p++){
+        seq.push({ kind: "card", destinyRound: d, pickIndex: p });
+      }
+    }
+    for (let b = 0; b < BURDEN_ROUNDS; b++){
+      seq.push({ kind: "burden", burdenRound: b });
+    }
+    return seq;
+  }
+  const SEQUENCE = buildSequence();
+
+  // ---------- Draft-state ----------
+  let started = false;
+  let stepIndex = 0;
+  let seenDestinyIds = new Set();
+  let picks = [];           // { card, kind } in volgorde van picken
+  let starterCards = [];    // snapshot bij start van de draft
+  let currentOfferPool = []; // de 3 (of minder) kaarten die nu getoond worden
+
+  function shuffled(arr){
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--){
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function poolForStep(step){
+    if (step.kind === "destiny"){
+      return collection.filter(c => c.type === "Destiny" && c.phase === DRAFT_PHASE && c.draftLegal && !seenDestinyIds.has(c.id));
+    }
+    if (step.kind === "card"){
+      return collection.filter(c => c.type !== "Destiny" && c.type !== "Burden" && c.phase === DRAFT_PHASE && c.draftLegal);
+    }
+    // burden
+    return collection.filter(c => c.type === "Burden" && c.draftLegal);
+  }
+
+  function stepTitle(step){
+    if (step.kind === "destiny") return DESTINY_TITLES[step.destinyRound];
+    if (step.kind === "card") return "Choose a card";
+    return "Carry your Burdens";
+  }
+
+  function stepProgress(step){
+    if (step.kind === "destiny") return `Destiny ${step.destinyRound + 1} van ${DESTINY_ROUNDS}`;
+    if (step.kind === "card") return `Destiny ${step.destinyRound + 1} van ${DESTINY_ROUNDS} · Kaart ${step.pickIndex + 1} van ${PICKS_PER_DESTINY_ROUND}`;
+    return `Burden ${step.burdenRound + 1} van ${BURDEN_ROUNDS}`;
+  }
+
+  // ---------- Rendering ----------
+  function showOnly(elId){
+    ["draft-start", "draft-offer-screen", "draft-done"].forEach(id => {
+      document.getElementById(id).style.display = (id === elId) ? "block" : "none";
+    });
+  }
+
+  function renderStart(){
+    started = false;
+    document.getElementById("draft-title").textContent = "Draft";
+    document.getElementById("draft-progress").textContent = "";
+    document.getElementById("btn-draft-restart").style.display = "none";
+    showOnly("draft-start");
+  }
+
+  function renderStep(){
+    const step = SEQUENCE[stepIndex];
+    document.getElementById("draft-title").textContent = stepTitle(step);
+    document.getElementById("draft-progress").textContent = stepProgress(step);
+    document.getElementById("btn-draft-restart").style.display = "inline-block";
+
+    const pool = poolForStep(step);
+    currentOfferPool = shuffled(pool).slice(0, OFFER_SIZE);
+
+    const offerWrap = document.getElementById("draft-offer");
+    const emptyMsg = document.getElementById("draft-offer-empty");
+    offerWrap.innerHTML = "";
+    emptyMsg.style.display = currentOfferPool.length === 0 ? "block" : "none";
+
+    currentOfferPool.forEach(card => {
+      const slot = document.createElement("div");
+      slot.className = "draft-offer-slot";
+      slot.innerHTML = buildCardFrameHtml(card);
+      slot.addEventListener("click", () => choose(card, step));
+      offerWrap.appendChild(slot);
+    });
+
+    showOnly("draft-offer-screen");
+  }
+
+  function renderDone(){
+    document.getElementById("draft-title").textContent = "Draft voltooid";
+    document.getElementById("draft-progress").textContent = "";
+    document.getElementById("btn-draft-restart").style.display = "inline-block";
+    showOnly("draft-done");
+  }
+
+  function renderSidebar(){
+    const allForStats = starterCards.concat(picks.map(p => p.card));
+    const statsWrap = document.getElementById("draft-stats");
+    if (allForStats.length === 0){
+      statsWrap.innerHTML = "";
+    } else {
+      const typeCounts = {};
+      TYPE_LIST.forEach(t => typeCounts[t] = 0);
+      let costSum = 0, costCount = 0, spiteSum = 0, spiteCount = 0;
+      allForStats.forEach(c => {
+        if (typeCounts[c.type] !== undefined) typeCounts[c.type]++;
+        const cfg = TYPE_CONFIG[c.type];
+        if (cfg && cfg.cost){
+          costSum += c.actionCost || 0; costCount++;
+          spiteSum += c.spiteCost || 0; spiteCount++;
+        }
+      });
+      const avgCost = costCount ? (costSum / costCount).toFixed(1) : "—";
+      const avgSpite = spiteCount ? (spiteSum / spiteCount).toFixed(1) : "—";
+      statsWrap.innerHTML = buildStatPillsHtml(allForStats.length, typeCounts, avgCost, avgSpite);
+    }
+
+    function buildRow(card){
+      const li = document.createElement("li");
+      li.className = "pick-row";
+      const swatch = document.createElement("span");
+      swatch.className = "swatch";
+      swatch.style.background = `var(${TYPE_COLOR_VAR[card.type] || "--gold"})`;
+      const name = document.createElement("span");
+      name.className = "pick-name";
+      name.textContent = card.name || "(naamloze kaart)";
+      li.appendChild(swatch);
+      li.appendChild(name);
+      li.addEventListener("mouseenter", () => showCardPreview(li, card));
+      li.addEventListener("mouseleave", hideCardPreview);
+      return li;
+    }
+
+    const starterList = document.getElementById("draft-starterlist");
+    starterList.innerHTML = "";
+    starterCards.forEach(c => starterList.appendChild(buildRow(c)));
+
+    const pickList = document.getElementById("draft-picklist");
+    pickList.innerHTML = "";
+    picks.forEach(p => pickList.appendChild(buildRow(p.card)));
+
+    document.getElementById("draft-sidebar-empty").style.display =
+      (starterCards.length === 0 && picks.length === 0) ? "block" : "none";
+  }
+
+  // ---------- Flow ----------
+  function choose(card, step){
+    if (step.kind === "destiny"){
+      // "Reeds gezien" = alle 3 aangeboden Destinies van deze ronde, niet
+      // enkel de gekozen — zo kunnen ze in volgende rondes niet opnieuw
+      // opduiken, zoals gevraagd.
+      currentOfferPool.forEach(c => seenDestinyIds.add(c.id));
+    }
+    picks.push({ card, kind: step.kind });
+    stepIndex++;
+    renderSidebar();
+    advance();
+  }
+
+  function advance(){
+    if (stepIndex >= SEQUENCE.length){
+      renderDone();
+    } else {
+      renderStep();
+    }
+  }
+
+  function startApprenticeDraft(){
+    started = true;
+    stepIndex = 0;
+    seenDestinyIds = new Set();
+    picks = [];
+    starterCards = collection.filter(c => c.phase === "Starter");
+    renderSidebar();
+    advance();
+  }
+
+  function restartDraft(){
+    if (started && !confirm("Huidige draft-voortgang gaat verloren. Toch herstarten?")) return;
+    renderStart();
+    picks = [];
+    seenDestinyIds = new Set();
+    starterCards = [];
+    renderSidebar();
+  }
+
+  function exportDraftDeck(){
+    const qty = {};
+    starterCards.concat(picks.map(p => p.card)).forEach(c => {
+      qty[c.id] = (qty[c.id] || 0) + 1;
+    });
+    const cards = Object.entries(qty).map(([cardId, q]) => {
+      const card = collection.find(c => c.id === cardId);
+      return { id: cardId, name: card ? card.name : null, qty: q };
+    });
+    const name = (document.getElementById("draft-deck-name").value || "Apprentice Draft").trim() || "Apprentice Draft";
+    const payload = { name, qty, cards };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name.replace(/[^a-z0-9\-_]/gi, "_") + ".json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  document.getElementById("btn-phase-apprentice").addEventListener("click", startApprenticeDraft);
+  document.getElementById("btn-draft-restart").addEventListener("click", restartDraft);
+  document.getElementById("btn-draft-export").addEventListener("click", exportDraftDeck);
+
+  if (window.self !== window.top){
+    const bar = document.getElementById("drive-bar");
+    if (bar) bar.style.display = "none";
+  }
+
+  // Live-synchronisatie vanuit de Kaartbuilder (via de shell). Werkt enkel
+  // de onderliggende collectie bij — een reeds lopende draft-ronde blijft
+  // met de kaarten die op dat moment aangeboden werden; pas de VOLGENDE
+  // random keuze gebruikt de bijgewerkte collectie.
+  window.addEventListener("message", function(e){
+    if (!e.data || e.data.type !== "wizards:collection-sync" || !Array.isArray(e.data.collection)) return;
+    collection = e.data.collection.map(normalizeCard);
+  });
+
+  DriveAuth.initLoginOverlay({
+    appTitle: "Wizards — Draft",
+    onSuccess: function(data, session){
+      collection = Array.isArray(data.collection) ? data.collection.map(normalizeCard) : [];
+      renderStart();
+      renderSidebar();
+    }
+  });
+})();
+</script>
+</body>
+</html>

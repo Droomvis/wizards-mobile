@@ -191,12 +191,13 @@
       <span class="sigil">⟡</span>
       <div>
         <h1>Wizards</h1>
-        <small>Kaartbuilder &middot; Collectie &amp; Decks &middot; Council &middot; Arena</small>
+        <small>Kaartbuilder &middot; Collectie &amp; Decks &middot; Draft &middot; Council &middot; Arena</small>
       </div>
     </div>
     <div id="tab-bar">
       <button class="tab-btn active" data-tab="builder">Kaartbuilder</button>
       <button class="tab-btn" data-tab="collection">Collectie &amp; Decks</button>
+      <button class="tab-btn" data-tab="draft">Draft</button>
       <button class="tab-btn" data-tab="council">Wizard Council</button>
       <button class="tab-btn" data-tab="arena">Test-arena</button>
     </div>
@@ -213,6 +214,9 @@
   </div>
   <div id="view-collection" class="tab-view">
     <iframe id="frame-collection" title="Collectie"></iframe>
+  </div>
+  <div id="view-draft" class="tab-view">
+    <iframe id="frame-draft" title="Draft"></iframe>
   </div>
   <div id="view-council" class="tab-view">
     <iframe id="frame-council" title="Wizard Council"></iframe>
@@ -378,6 +382,7 @@
         panes: {
           builder:    { view: "#view-builder",    iframe: "#frame-builder",    src: "cardbuilder.html" },
           collection: { view: "#view-collection", iframe: "#frame-collection", src: "collectie.html" },
+          draft:      { view: "#view-draft",      iframe: "#frame-draft",      src: "draft.html" },
           council:    { view: "#view-council",    iframe: "#frame-council",    src: "council.html" },
           arena:      { view: "#view-arena",      iframe: "#frame-arena",      src: "arena.html" }
         },
@@ -396,7 +401,7 @@
         if (e.data.type === "wizards:hat-updated"){
           // Doorsturen naar alle module-iframes zodat hun eigen drive-bar-
           // bubbel (en, voor Council, de peer-avatars) meteen mee-updaten.
-          ["frame-builder", "frame-collection", "frame-council", "frame-arena"].forEach(function(id){
+          ["frame-builder", "frame-collection", "frame-draft", "frame-council", "frame-arena"].forEach(function(id){
             const f = document.getElementById(id);
             if (f && f.contentWindow) f.contentWindow.postMessage(e.data, "*");
           });
@@ -427,7 +432,7 @@
           // wijziging en na elke Drive-actie. Doorsturen naar alle andere
           // module-iframes zodat bv. Collectie meteen meeleeft, zonder dat de
           // gebruiker eerst opnieuw moet inloggen of van tab moet wisselen.
-          ["frame-collection", "frame-council", "frame-arena"].forEach(function(id){
+          ["frame-collection", "frame-draft", "frame-council", "frame-arena"].forEach(function(id){
             const f = document.getElementById(id);
             if (f && f.contentWindow) f.contentWindow.postMessage(e.data, "*");
           });

@@ -7,6 +7,22 @@ collectie.html
 	klik op een kaart om ze aan het actieve deck toe te voegen). Vroeger was dit
 	een aparte module, decks.html (nu in Legacy) — op 2026-08-14 samengevoegd
 	met collectie.html voor een vlottere workflow.
+draft.html
+	module voor de kaart-draft (Apprentice/Journeyman/Master — enkel
+	Apprentice is momenteel functioneel). Startscherm met de 3 fase-knoppen,
+	daarna een sequentie van 3 rondes [1 Destiny-keuze uit 3 + 5 kaartkeuzes
+	uit telkens 3], gevolgd door 3 Burden-keuzes uit telkens 3 — alles data-
+	driven opgebouwd in SEQUENCE (draft.html) i.p.v. hardcoded per stap.
+	Enkel kaarten met draftLegal === true (zie card-data.js) komen in de
+	aanbiedingen terecht; Destinies die in een eerdere ronde al aangeboden
+	werden (gekozen of niet) kunnen niet opnieuw verschijnen. Rechterpaneel
+	toont doorlopend de gepickte kaarten + één kopie van elke "Starter"-
+	fasekaart als verticale naamlijst (hover = volledige kaartvoorbeeld via
+	de gedeelde showCardPreview/hideCardPreview uit card-render.js), plus
+	minimale statistieken (aantal per type, gem. Action-/Spite-kost) via
+	dezelfde buildStatPillsHtml als collectie.html. Sluit af met een export-
+	knop die een deck-.json downloadt in hetzelfde {name, qty, cards}-
+	formaat als de deck-export in collectie.html.
 council.html
 	module voor interspeler-communicatie: 5 vaste voice-zalen (WebRTC-mesh via
 	de relay-server), een raaf-aankondiging en een rudimentair forum (beide
@@ -39,6 +55,31 @@ Centrale database ("wizards-cards.json" met kaarten en communicatie) gehost op g
 	https://drive.google.com/file/d/1SVaZiaeKGullhojSUAlYB3Sc38ALjARH/view?usp=drive_link
 wizards-cards.Json is bereikbaar door .html applicatie via Google aps script
 	https://script.google.com/home/projects/1cL4kPKw-6PKKDaxpIjfY_TnHWxFsYEhHZ_n42JxcJnVVaCIjZXfbFMnB/edit
+
+De hele Modulair-map (index.html + alle modules, inclusief Wizards_Mobile.html)
+wordt sinds 2026-08-20 ook gehost via GitHub Pages, zodat de gedeelde
+login-sessie tussen shell en module-tabs werkt (vereist https/localhost,
+niet file://) en zodat Wizards_Mobile.html als fullscreen app op een
+telefoon geïnstalleerd kan worden.
+	https://droomvis.github.io/wizards-mobile/
+	— opent automatisch index.html (de vertrouwde shell met tabbladen)
+	https://droomvis.github.io/wizards-mobile/Wizards_Mobile.html
+	— de mobiele versie, apart te bookmarken/installeren op een telefoon
+
+Mapstructuur (sinds 2026-08-20): de oude "Modulair"-map heet nu "development"
+— dat blijft de werkmap waar alles bewerkt wordt (ikzelf werk ook in deze map).
+Daarnaast, als zussen van "development" (dus rechtstreeks in Wizards\):
+- "GitPub": bevat KOPIEËN van enkel de bestanden die naar GitHub Pages gaan
+  (index.html + modules + Wizards_Mobile.html + manifest.webmanifest +
+  sw-mobile.js + icons/ + shared/ + Architectuur.txt). GitHub Desktop wordt
+  aan DEZE map gekoppeld, niet aan "development" — zo blijven de zip's,
+  "Early Access Automation" en andere niet-te-hosten spullen gegarandeerd
+  buiten de publieke repo, zonder een .gitignore te moeten onderhouden.
+  Na elke wijziging in "development" die live moet: het aangepaste bestand
+  overkopiëren naar dezelfde plek in "GitPub", dan pas commit+push.
+- "Elders gehost": (verplaatst uit development) bevat de losstaande
+  arena-server-code (package.json, server.js) die apart via de
+  Droomvis/Wizards_Arena-repo op GitHub + Render draait — zie hieronder.
 
 Code voor de arena wordt onderhouden op GitHub
 	https://github.com/Droomvis/Wizards_Arena
@@ -139,3 +180,18 @@ al bestaande velden). Twee nieuwe sorteeropties toegevoegd aan col-sort:
 "Laatst gewijzigd" en "Aangemaakt" (beide meest-recent-eerst). De lokale
 zoekbalk in cardbuilder.html zelf doorzoekt nu ook status, ontwerper,
 subtypes en tags (voorheen enkel naam/type/theme/location).
+
+
+Op 2026-08-21 toegevoegd: draft.html, een nieuwe module voor de kaart-
+draft (zie de module-beschrijving hierboven). Toegevoegd aan index.html als
+vijfde tabblad "Draft" (tussen Collectie & Decks en Wizard Council), lazy
+geladen zoals de andere modules via DriveAuth.wireLazyTabs. Luistert net als
+collectie.html naar "wizards:collection-sync"-boodschappen vanuit de shell
+zodat kaarten uit de Kaartbuilder ook hier meteen beschikbaar zijn; een reeds
+lopende draft-ronde blijft echter bij de kaarten die op dat moment aangeboden
+werden — pas de volgende willekeurige keuze gebruikt de bijgewerkte collectie.
+Enige aanname t.o.v. de oorspronkelijke specificatie: het bestaande
+draftLegal-veld (card-data.js, sinds 2026-08-15 met het oog op precies deze
+functionaliteit toegevoegd) wordt gebruikt om de aanbod-pools te filteren —
+kaarten moeten dus expliciet in de Kaartbuilder als draft-legaal aangevinkt
+worden vóór ze in de draft kunnen opduiken.
