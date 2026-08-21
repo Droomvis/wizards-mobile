@@ -804,6 +804,7 @@
           <option value="opponent">Tegenstander / Speler 2</option>
         </select>
       </div>
+      <div id="starter-random-note" style="display:none; opacity:0.75; font-size:0.9em;">De beginspeler wordt willekeurig bepaald bij het starten.</div>
 
       <button class="btn primary" id="btn-start-arena">Start test-arena</button>
       <div id="arena-start-hint"></div>
@@ -1068,6 +1069,15 @@
     soloMode = soloToggle.checked;
     document.getElementById("solo-p2-panel").style.display = soloMode ? "flex" : "none";
     document.getElementById("opp-panel").style.display = (!soloMode) ? "block" : "none";
+    // "Wie begint?" blijft manueel instelbaar in solo-modus (handig om
+    // gericht te playtesten), maar in netwerkmodus wordt de beginspeler nu
+    // willekeurig bepaald bij het starten (zie startArena) — dat veld zou
+    // daar alleen verwarring geven, aangezien elke speler het onafhankelijk
+    // en zonder sync kon invullen.
+    const starterRow = document.getElementById("starter-row");
+    if (starterRow) starterRow.style.display = soloMode ? "flex" : "none";
+    const starterRandomNote = document.getElementById("starter-random-note");
+    if (starterRandomNote) starterRandomNote.style.display = soloMode ? "none" : "block";
 
     populateDeckSelect(document.getElementById("my-deck-select"), myPendingPick.qty);
     if (soloMode) populateDeckSelect(document.getElementById("p2-deck-select"), null);
@@ -1175,8 +1185,13 @@
     }
     const seatsInOrder = mySeat === "p1" ? [oppSeatData, mySeatData] : [mySeatData, oppSeatData];
     const players = seatsInOrder.map(buildPlayerFromSeat);
-    const myIdx = mySeat === "p1" ? 1 : 0;
-    const startIdx = starterChoice === "opponent" ? otherPlayerIdx(myIdx) : myIdx;
+    // Netwerkmodus: de beginspeler wordt willekeurig bepaald (niet meer via
+    // het "Wie begint?"-veld, dat was een lokale keuze per speler zonder
+    // enige synchronisatie — beide spelers konden dus onafhankelijk iets
+    // anders kiezen). Wie op "Start" klikt, bepaalt de worp; de resulterende
+    // volledige `arena` (inclusief wie begint) wordt zoals gewoonlijk
+    // gewoon uitgezonden, dus beide kanten komen op hetzelfde resultaat uit.
+    const startIdx = Math.random() < 0.5 ? 0 : 1;
     arena = { phase: "board", players, stack: [], log: [], chat: [], settings: freshArenaSettings() };
     renderArenaTab();
     startPlayerTurn(startIdx);
@@ -2883,17 +2898,20 @@
 
   // Claimt mijn seat zodra duidelijk is of ik de eerste of tweede
   // aanwezige ben in deze room (zie uitleg bij "mySeat" hierboven).
+  //
+  // Deze functie wordt uitsluitend aangeroepen vanuit de time-out in
+  // mpOpenSocket, dus enkel wanneer de server na een "join" NIETS heeft
+  // teruggestuurd (zie hieronder). Dat betekent onomstotelijk dat de room
+  // op de server leeg is — er is dus geen enkele reden om de lokaal
+  // gecachete `arena` (de autosave van een vorige, ANDERE room/match op
+  // dit toestel) nog te raadplegen: die kan perfect nog twee ingevulde
+  // seats bevatten van de vorige partij, wat vroeger foutief werd gelezen
+  // als "deze room heeft al twee spelers". We beginnen hier dus altijd met
+  // een schone lei en claimen p0.
   function mpClaimSeatAndInit(){
     if (soloMode) return;
-    if (arena && arena.phase === "board") return; // een match is al bezig, niets te claimen
-    if (arena && arena.phase === "setup" && arena.seats){
-      if (!arena.seats.p0){ mySeat = "p0"; }
-      else if (!arena.seats.p1){ mySeat = "p1"; }
-      else { mySeat = null; mpSetStatus("Deze room heeft al twee spelers.", "err"); return; }
-    } else {
-      arena = freshSetupArena();
-      mySeat = "p0";
-    }
+    arena = freshSetupArena();
+    mySeat = "p0";
     pushMySeat();
   }
 
