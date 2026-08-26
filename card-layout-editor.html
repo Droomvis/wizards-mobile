@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wizards — Kaart Layout Editor</title>
+
+<style id="editor-chrome-css">
+  :root{
+    --ed-bg:#15121c;
+    --ed-vignette: radial-gradient(ellipse at 50% -10%, #241d33 0%, #15121c 55%);
+    --ed-panel:#1e1a29;
+    --ed-panel-2:#241f33;
+    --ed-border:#362c49;
+    --ed-border-soft:#2a2338;
+    --ed-ink:#d9d2e8;
+    --ed-ink-muted:#9788b3;
+    --ed-ink-dim:#6f6288;
+    --ed-accent:#c9a24b;
+    --ed-accent-soft:#e2c583;
+    --ed-font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --ed-font-display: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
+    --ed-font-mono: 'SF Mono', Consolas, Monaco, monospace;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; margin:0; }
+  body{
+    background: var(--ed-vignette);
+    color: var(--ed-ink);
+    font-family: var(--ed-font-ui);
+    min-height:100vh;
+    display:flex; flex-direction:column;
+  }
+  header{
+    display:flex; align-items:center; justify-content:space-between; gap:16px;
+    flex-wrap:wrap;
+    padding:16px 22px;
+    border-bottom:1px solid var(--ed-border);
+    background: var(--ed-panel);
+  }
+  header h1{
+    font-family: var(--ed-font-display);
+    font-size:19px; margin:0; color: var(--ed-accent-soft); font-weight:700;
+  }
+  header p{ margin:4px 0 0; font-size:12.5px; color: var(--ed-ink-dim); max-width:640px; }
+  .actions{ display:flex; gap:8px; flex-wrap:wrap; }
+  .btn{
+    font-family: var(--ed-font-ui); font-size:12.5px;
+    background: var(--ed-panel-2); color: var(--ed-ink);
+    border:1px solid var(--ed-border);
+    padding:8px 13px; border-radius:5px; cursor:pointer;
+    white-space:nowrap; transition: border-color .15s, background .15s;
+  }
+  .btn:hover{ border-color: var(--ed-accent); background:#2a2338; }
+  .btn.primary{ background: linear-gradient(180deg,#2f2743,#251f38); border-color: var(--ed-accent); color: var(--ed-accent-soft); }
+  .btn.ghost{ background:none; }
+
+  main{ flex:1; display:flex; min-height:0; }
+
+  .controls{
+    width:340px; flex-shrink:0; overflow-y:auto;
+    border-right:1px solid var(--ed-border); background: var(--ed-panel);
+    padding:14px 16px 60px;
+  }
+  .preview{
+    flex:1; overflow-y:auto;
+    display:flex; flex-direction:column; align-items:center;
+    padding:30px 20px 60px;
+    gap:22px;
+  }
+
+  details{
+    border:1px solid var(--ed-border-soft); border-radius:8px;
+    margin-bottom:10px; background: var(--ed-panel-2);
+    overflow:hidden;
+  }
+  details summary{
+    cursor:pointer; list-style:none; padding:10px 12px;
+    font-size:12.5px; font-weight:600; color: var(--ed-accent-soft);
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  details summary::-webkit-details-marker{ display:none; }
+  details summary::after{ content:"▾"; color: var(--ed-ink-dim); transition: transform .15s; }
+  details[open] summary::after{ transform: rotate(180deg); }
+  .details-body{ padding:4px 12px 12px; display:flex; flex-direction:column; gap:9px; }
+
+  .field-row{ display:flex; align-items:center; gap:8px; }
+  .field-row label{ flex:1; font-size:11.5px; color: var(--ed-ink-muted); line-height:1.3; }
+  .field-row input[type=number]{
+    width:64px; font-size:12px; padding:5px 6px; border-radius:4px;
+    background: var(--ed-panel); border:1px solid var(--ed-border); color: var(--ed-ink);
+  }
+  .field-row input[type=text]{
+    width:150px; font-size:11px; padding:5px 6px; border-radius:4px;
+    background: var(--ed-panel); border:1px solid var(--ed-border); color: var(--ed-ink);
+  }
+  .field-row input[type=color]{
+    width:34px; height:26px; padding:0; border-radius:4px; border:1px solid var(--ed-border);
+    background:none; cursor:pointer;
+  }
+  .field-unit{ font-size:10.5px; color: var(--ed-ink-dim); width:14px; }
+
+  table.fields-table{ width:100%; border-collapse:collapse; font-size:11px; }
+  table.fields-table th, table.fields-table td{
+    text-align:center; padding:5px 3px; border-bottom:1px solid var(--ed-border-soft);
+  }
+  table.fields-table th:first-child, table.fields-table td:first-child{ text-align:left; color: var(--ed-ink-muted); }
+  table.fields-table th{ color: var(--ed-ink-dim); font-weight:600; font-size:10px; text-transform:uppercase; letter-spacing:0.4px; }
+  table.fields-table input[type=checkbox]{ accent-color: var(--ed-accent); cursor:pointer; }
+
+  .type-tabs{ display:flex; gap:6px; flex-wrap:wrap; justify-content:center; }
+  .type-tab{
+    font-family: var(--ed-font-ui); font-size:12px; cursor:pointer;
+    background: var(--ed-panel-2); color: var(--ed-ink-muted); border:1px solid var(--ed-border);
+    padding:7px 13px; border-radius:20px;
+  }
+  .type-tab.active{ border-color: var(--ed-accent); color: var(--ed-accent-soft); background:#2a2338; }
+
+  .snippet-box{
+    width:100%; max-width:760px; margin:0 auto;
+    background: var(--ed-panel); border:1px solid var(--ed-border); border-radius:8px;
+    padding:12px; font-family: var(--ed-font-mono); font-size:11px; color: var(--ed-ink-muted);
+    white-space:pre-wrap; word-break:break-word; display:none;
+  }
+  .hint{ font-size:11px; color: var(--ed-ink-dim); line-height:1.5; text-align:center; max-width:520px; }
+</style>
+
+<style id="base-card-css">
+/* =========================================================================
+   card-render.css — gedeelde stijl voor het tekenen van een "kaart" (card-frame).
+   Gebruikt door: cardbuilder.html (preview + collectie + decks) en arena.html
+   (test-arena, hover-preview).
+
+   BELANGRIJK: deze module verwacht dat de host-pagina zelf al de algemene
+   design-tokens definieert in :root (--gold, --panel-2, --font-mono,
+   --font-display, --parchment, --parchment-ink, --parchment-chip, ...).
+   Die tokens horen bij het globale thema van de app, niet bij de kaart-
+   render-engine specifiek, en blijven dus in elke module staan.
+   ========================================================================= */
+
+.card-frame{
+  width:280px; min-height:390px;
+  display:flex; flex-direction:column;
+  /* Standaard volledig --parchment; als de kaart een Theme heeft (Fire/Earth/
+     Water/Sky/Shadow/Light) en TYPE_CONFIG.theme aan staat, zet card-render.js
+     --card-bg-tint op de bijhorende --t-* kleur en wordt die er lichtjes
+     doorheen gemengd. Geen --card-bg-tint gezet → color-mix mengt --parchment
+     met zichzelf, dus identiek aan voorheen. */
+  background: color-mix(in srgb, var(--card-bg-tint, var(--parchment)) var(--card-bg-tint-strength, 22%), var(--parchment));
+  color: var(--parchment-ink);
+  border-radius:10px;
+  padding:5px;
+  position:relative;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.2);
+  background-image:
+    radial-gradient(circle at 15% 8%, rgba(0,0,0,0.05), transparent 40%),
+    radial-gradient(circle at 85% 92%, rgba(0,0,0,0.05), transparent 40%),
+    linear-gradient(
+      color-mix(in srgb, var(--card-bg-tint, var(--parchment)) var(--card-bg-tint-strength, 22%), var(--parchment)),
+      color-mix(in srgb, var(--card-bg-tint, var(--parchment)) var(--card-bg-tint-strength, 22%), var(--parchment))
+    );
+}
+.card-inner{
+  border:2px solid var(--type-color, var(--gold));
+  border-radius:6px;
+  flex:1;
+  display:flex; flex-direction:column;
+  position:relative;
+  padding-bottom:8px;
+}
+.card-inner::before{
+  content:"";
+  position:absolute; inset:4px;
+  border:1px solid rgba(0,0,0,0.15);
+  border-radius:4px;
+  pointer-events:none;
+}
+.card-pips{
+  position:absolute; top:-15px; display:flex; width:100%; justify-content:space-between;
+  padding:0 8px; pointer-events:none;
+}
+.pip{
+  width:39px; height:39px; border-radius:50%;
+  background: var(--panel-2); color:#f1e9d2;
+  border:2px solid var(--gold);
+  display:flex; align-items:center; justify-content:center;
+  font-family: var(--font-mono); font-size:18px; font-weight:bold;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+}
+.pip.spite{ border-color:#7c3f52; background:#3a1e29; }
+.pip.action{ border-color: var(--gold); background:#332711; }
+.pip.pip-hidden{ visibility:hidden; }
+
+.card-name-banner{
+  margin:20px 10px 4px;
+  font-family: var(--font-display);
+  font-size:16px; font-weight:700; text-align:center;
+  line-height:1.2;
+  min-height:20px;
+  word-break:break-word;
+}
+.card-type-ribbon{
+  margin:0 auto 8px; padding:2px 10px;
+  background: var(--type-color, var(--gold));
+  color:#fff5e0;
+  font-size:10px; letter-spacing:0.8px; text-transform:uppercase;
+  border-radius:3px;
+  display:inline-flex; gap:6px; align-self:center;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+.card-type-ribbon .sep{ opacity:0.6; }
+
+.card-art{
+  margin:0 12px 8px; height:94px; border-radius:4px;
+  background-size:cover; background-position:center;
+  border:1px solid rgba(0,0,0,0.2);
+  display:flex; align-items:center; justify-content:center;
+  background-color: rgba(0,0,0,0.06);
+  color: rgba(0,0,0,0.25);
+  font-family: var(--font-display); font-size:13px;
+  background-image:
+    repeating-linear-gradient(135deg, rgba(0,0,0,0.03) 0 8px, transparent 8px 16px);
+}
+
+.card-keyword-line{
+  margin:0 12px 4px; font-size:12.5px; line-height:1.3;
+}
+.card-text{
+  margin:0 12px 6px; font-size:12.5px; line-height:1.45;
+  white-space:pre-wrap; flex:1; min-height:40px;
+}
+.card-flavor{
+  margin:0 12px 8px; font-size:11px; font-style:italic; color:#5a4a34;
+  border-top:1px solid rgba(0,0,0,0.15); padding-top:6px;
+}
+.card-stats{
+  display:flex; justify-content:center; gap:10px; margin-top:auto; padding:6px 10px 2px;
+}
+.card-phase-strip{
+  margin:8px 12px 0; padding:4px 8px; text-align:center;
+  font-family: var(--font-display); font-size:10px; letter-spacing:1.4px;
+  text-transform:uppercase; font-weight:bold; color:#2c2318;
+  border-radius:3px; box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+}
+.stat{
+  width:30px; height:30px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  font-family: var(--font-mono); font-size:12px; font-weight:bold;
+  border:1.5px solid var(--parchment-ink); background: rgba(255,255,255,0.35);
+  flex-direction:column; line-height:1;
+}
+.stat .n{ font-size:12px; }
+.stat .l{ font-size:7px; letter-spacing:0.5px; opacity:0.7; }
+
+/* Kleine "thumbnail"-weergave van een kaart (o.a. collectie-grid, sidebar-hover) */
+.card-thumb{
+  width:200px; height:279px; overflow:hidden; position:relative;
+  cursor:pointer; border-radius:10px;
+  transition: transform .12s;
+  flex-shrink:0;
+}
+.card-thumb:hover{ transform: translateY(-4px); }
+.card-thumb::after{
+  content:""; position:absolute; inset:0; border-radius:10px;
+  box-shadow: 0 8px 18px rgba(0,0,0,0.45);
+  pointer-events:none;
+}
+.card-thumb .card-frame{
+  width:280px; min-height:390px;
+  transform: scale(0.7143);
+  transform-origin: top left;
+}
+
+@media (max-width: 420px){
+  .card-thumb{ width:150px; height:209px; }
+  .card-thumb .card-frame{ transform: scale(0.5357); }
+  .pip{ width:33px; height:33px; font-size:15px; }
+}
+
+/* Zwevende hover-preview (o.a. gebruikt in de deck-tabel en de arena),
+   eenmalig aan <body> gehangen door showCardPreview() in card-render.js. */
+#card-hover-preview{
+  position:fixed; z-index:6000; pointer-events:none; display:none;
+  filter: drop-shadow(0 12px 26px rgba(0,0,0,0.6));
+}
+</style>
+
+<!-- Deze <style> blijft leeg tot de editor-JS hem vult — hij staat NA
+     base-card-css, dus wint bij gelijke specificiteit (latere bron wint). -->
+<style id="override-card-css"></style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Wizards — Kaart Layout Editor</h1>
+    <p>Past enkel de <strong>vormgeving</strong> van de kaart aan (kleuren, afmetingen, tekstgroottes, welke velden per kaarttype getoond worden) — niet de kaartdata zelf. Die blijft in cardbuilder.html + het JSON-bestand. Download hieronder de aangepaste bestanden en vervang ze in <code>shared/</code>.</p>
+  </div>
+  <div class="actions">
+    <button class="btn ghost" id="btn-reset">↺ Reset</button>
+    <button class="btn" id="btn-export-tokens">📋 Tokens-snippet</button>
+    <button class="btn" id="btn-export-js">💾 card-render.js</button>
+    <button class="btn primary" id="btn-export-css">💾 card-render.css</button>
+  </div>
+</header>
+
+<main>
+  <aside class="controls">
+
+    <details open>
+      <summary>Kleuren &amp; fonts (algemeen)</summary>
+      <div class="details-body" id="group-tokens"></div>
+    </details>
+
+    <details>
+      <summary>Kleuren per kaarttype</summary>
+      <div class="details-body" id="group-type-colors"></div>
+    </details>
+
+    <details>
+      <summary>Achtergrond per thema</summary>
+      <div class="details-body" id="group-theme-bg"></div>
+    </details>
+
+    <details>
+      <summary>Afmetingen kaart</summary>
+      <div class="details-body" id="group-dimensions"></div>
+    </details>
+
+    <details>
+      <summary>Tekstgroottes</summary>
+      <div class="details-body" id="group-typography"></div>
+    </details>
+
+    <details>
+      <summary>Pips &amp; stats</summary>
+      <div class="details-body" id="group-pips"></div>
+    </details>
+
+    <details>
+      <summary>Welke velden per kaarttype</summary>
+      <div class="details-body" id="group-fields"></div>
+    </details>
+
+  </aside>
+
+  <section class="preview">
+    <div class="type-tabs" id="type-tabs"></div>
+    <select class="type-tab" id="theme-preview-select" style="display:none;"></select>
+    <div id="preview-card"></div>
+    <p class="hint">Voorbeeldkaart met fictieve data — bedoeld om de vormgeving te beoordelen, niet als echte kaart.</p>
+    <pre class="snippet-box" id="snippet-box"></pre>
+  </section>
+</main>
+
+<script id="card-render-js">
+/* =========================================================================
+   card-render.js — gedeelde logica voor het tekenen van een "kaart".
+   Gebruikt door: cardbuilder.html en arena.html (en later council.html indien
+   nodig). Laad dit bestand samen met card-render.css.
+
+   Bevat:
+     - PHASE_COLOR, TYPE_COLOR_VAR, TYPE_CONFIG  (kaarttype-configuratie)
+     - escapeHtml(str)
+     - buildCardFrameHtml(card)  → geeft de HTML-string van een kaart terug
+
+   Deze module bewaart GEEN state en doet GEEN DOM-mounting zelf — dat blijft
+   per app anders (renderPreview, collectie-grid, arena-bord, ...) en hoort
+   dus in de app-specifieke bestanden thuis.
+
+   Herkomst: dit was tot nog toe letterlijk gedupliceerde code in zowel
+   cardbuilder.html als arena.html. Bij het samenvoegen bleek TYPE_CONFIG
+   voor Destiny/Burden uiteen te zijn gegroeid (stats: true vs. false) —
+   opgelost door hier bewust te kiezen voor stats: true (zoals Cardbuilder). */
+
+const PHASE_COLOR = { Starter: "#9a9a9a", Apprentice: "#b08d57", Journeyman: "#c3c7d1", Master: "#d4af37" };
+
+const TYPE_COLOR_VAR = {
+  Wizard: "--c-wizard",
+  Manifestation: "--c-manifestation",
+  Incantation: "--c-incantation",
+  Hex: "--c-hex",
+  Destiny: "--c-destiny",
+  Burden: "--c-burden"
+};
+
+// Achtergrondtint per Theme-veld (Fire/Earth/Water/Sky/Shadow/Light), gebruikt
+// om de kaart-achtergrond (standaard volledig "parchment") lichtjes te tinten
+// op basis van het gekozen Theme — enkel relevant voor kaarttypes waar
+// TYPE_CONFIG.theme true is (Manifestation/Incantation/Hex). Geen Theme
+// gekozen (of kaarttype zonder Theme-veld) → gewoon var(--parchment), zoals
+// voorheen.
+const THEME_COLOR_VAR = {
+  Fire: "--t-fire",
+  Earth: "--t-earth",
+  Water: "--t-water",
+  Sky: "--t-sky",
+  Shadow: "--t-shadow",
+  Light: "--t-light"
+};
+
+// Welke veldgroepen relevant zijn per kaarttype (stuurt enkel show/hide aan —
+// er wordt niets afgedwongen en onderliggende data gaat nooit verloren bij verbergen).
+const TYPE_CONFIG = {
+  Wizard:        { theme:false, location:false, cost:false, stats:true  },
+  Manifestation: { theme:true,  location:false, cost:true,  stats:true  },
+  Incantation:   { theme:true,  location:false, cost:true,  stats:false },
+  Hex:           { theme:true,  location:false, cost:true,  stats:false },
+  Destiny:       { theme:false, location:true,  cost:false, stats:true  },
+  Burden:        { theme:false, location:false, cost:true,  stats:true  }
+};
+
+function escapeHtml(str){
+  return String(str)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+function buildCardFrameHtml(card){
+  const cfg = TYPE_CONFIG[card.type] || TYPE_CONFIG.Manifestation;
+  const typeColorVar = TYPE_COLOR_VAR[card.type] || "--gold";
+  const themeColorVar = (cfg.theme && card.theme && THEME_COLOR_VAR[card.theme]) ? THEME_COLOR_VAR[card.theme] : null;
+  const frameBgStyle = themeColorVar ? ` style="--card-bg-tint: var(${themeColorVar});"` : "";
+
+  let pipsHtml = "";
+  if (cfg.cost && (card.actionCost > 0 || card.spiteCost > 0)){
+    const actionPip = `<div class="pip action${card.actionCost > 0 ? "" : " pip-hidden"}" title="Action-kost">${card.actionCost}A</div>`;
+    const spitePip = `<div class="pip spite${card.spiteCost > 0 ? "" : " pip-hidden"}" title="Spite-kost">${card.spiteCost}S</div>`;
+    pipsHtml = `<div class="card-pips">${actionPip}${spitePip}</div>`;
+  }
+
+  let subLabel = "";
+  if (cfg.theme && card.theme){
+    subLabel = `<span>${escapeHtml(card.theme)}</span>`;
+  } else if (cfg.location && card.location){
+    subLabel = `<span>${escapeHtml(card.location)}</span>`;
+  }
+
+  // Subtype(s) tonen naast het hoofdtype, bv. "Manifestation - Minion" of
+  // "Burden - Manifestation" (cfr. TO DO). Enkel het spelmechanische type +
+  // subtype hoort hier; rarity/draftLegal/effects zijn bewust NOOIT op de
+  // kaart zelf te zien — dat zijn interne/engine-velden.
+  const subtypeLabel = (Array.isArray(card.subtypes) && card.subtypes.length)
+    ? ` - ${card.subtypes.map(escapeHtml).join(", ")}`
+    : "";
+
+  let artHtml = card.image
+    ? `<div class="card-art" style="background-image:url(${card.image})"></div>`
+    : `<div class="card-art">${escapeHtml(card.type)}</div>`;
+
+  let statsHtml = "";
+  if (cfg.stats){
+    const parts = [];
+    if (card.body !== "") parts.push(`<div class="stat"><span class="n">${escapeHtml(card.body)}</span><span class="l">BODY</span></div>`);
+    if (card.mind !== "") parts.push(`<div class="stat"><span class="n">${escapeHtml(card.mind)}</span><span class="l">MIND</span></div>`);
+    if (card.soul !== "") parts.push(`<div class="stat"><span class="n">${escapeHtml(card.soul)}</span><span class="l">SOUL</span></div>`);
+    if (parts.length) statsHtml = `<div class="card-stats">${parts.join("")}</div>`;
+  }
+
+  // Slumber: automatisch afgeleide keyword-regel op basis van het geprinte
+  // getal (0 = geen printed waarde) — bewust NIET manueel getypt in
+  // gameText, om dubbele/tegenstrijdige waarden te vermijden (cfr. Body/
+  // Mind/Soul, die ook als apart veld i.p.v. tekst op de kaart komen).
+  // Enkel getoond zodra Slumber > 0.
+  const slumberLineHtml = card.slumber > 0
+    ? `<div class="card-keyword-line"><strong>Slumber ${escapeHtml(card.slumber)}</strong></div>`
+    : "";
+
+  let flavorHtml = card.flavorText
+    ? `<div class="card-flavor">${escapeHtml(card.flavorText)}</div>`
+    : "";
+
+  const phaseHtml = card.phase
+    ? `<div class="card-phase-strip" style="background:${PHASE_COLOR[card.phase] || "#9a9a9a"};">${escapeHtml(card.phase)}</div>`
+    : "";
+
+  return `
+    <div class="card-frame"${frameBgStyle}>
+      <div class="card-inner" style="--type-color: var(${typeColorVar});">
+        ${pipsHtml}
+        <div class="card-name-banner">${escapeHtml(card.name) || "&nbsp;"}</div>
+        <div style="text-align:center;">
+          <div class="card-type-ribbon">
+            <span>${escapeHtml(card.type)}${subtypeLabel}</span>
+            ${subLabel ? `<span class="sep">·</span>${subLabel}` : ""}
+          </div>
+        </div>
+        ${artHtml}
+        ${slumberLineHtml}
+        <div class="card-text">${escapeHtml(card.gameText)}</div>
+        ${flavorHtml}
+        ${statsHtml}
+        ${phaseHtml}
+      </div>
+    </div>
+  `;
+}
+
+/* ---------- Zwevende hover-preview ----------
+   Generieke helper (o.a. gebruikt in de deck-tabel en de arena) om op hover
+   een volledige kaart te tonen naast de aanwijzer. Eenmalig aan <body>
+   gehangen. */
+let cardPreviewEl = null;
+function ensureCardPreviewEl(){
+  if (!cardPreviewEl){
+    cardPreviewEl = document.createElement("div");
+    cardPreviewEl.id = "card-hover-preview";
+    document.body.appendChild(cardPreviewEl);
+  }
+  return cardPreviewEl;
+}
+
+function showCardPreview(triggerEl, card){
+  if (!card) return;
+  const el = ensureCardPreviewEl();
+  el.innerHTML = buildCardFrameHtml(card);
+  el.style.display = "block";
+  const tr = triggerEl.getBoundingClientRect();
+  requestAnimationFrame(() => {
+    const r = el.getBoundingClientRect();
+    let x = tr.right + 14;
+    let y = tr.top;
+    if (x + r.width > window.innerWidth - 8) x = tr.left - r.width - 14;
+    if (x < 8) x = 8;
+    if (y + r.height > window.innerHeight - 8) y = window.innerHeight - r.height - 8;
+    if (y < 8) y = 8;
+    el.style.left = x + "px";
+    el.style.top = y + "px";
+  });
+}
+
+function hideCardPreview(){
+  if (cardPreviewEl) cardPreviewEl.style.display = "none";
+}
+</script>
+
+<script>
+(function(){
+
+  // ---------- Voorbeeldkaarten (fictieve data, enkel voor de preview) ----------
+  const SAMPLE_CARDS = {
+    Wizard: {
+      type:"Wizard", name:"Sable Voss", phase:"Master", subtypes:["Elementalist"],
+      theme:"", location:"", image:"",
+      actionCost:0, spiteCost:0, body:3, mind:4, soul:5, slumber:0,
+      gameText:"Bij het begin van je beurt: kies een Manifestation in je greep en verminder de Action-kost ervan met 1.",
+      flavorText:"\u201cDe vlam luistert niet naar wie haar vreest.\u201d"
+    },
+    Manifestation: {
+      type:"Manifestation", name:"Ember Whelp", phase:"Apprentice", subtypes:["Minion"],
+      theme:"Fire", location:"", image:"",
+      actionCost:2, spiteCost:1, body:2, mind:1, soul:1, slumber:0,
+      gameText:"Bij binnenkomst: doe 1 schade aan een tegenstander.",
+      flavorText:"Klein, maar niet onschuldig."
+    },
+    Incantation: {
+      type:"Incantation", name:"Tidal Ward", phase:"Journeyman", subtypes:[],
+      theme:"Water", location:"", image:"",
+      actionCost:1, spiteCost:0, body:"", mind:"", soul:"", slumber:2,
+      gameText:"Voorkom de volgende schade die je deze beurt zou oplopen.",
+      flavorText:""
+    },
+    Hex: {
+      type:"Hex", name:"Withering Glare", phase:"Apprentice", subtypes:[],
+      theme:"Shadow", location:"", image:"",
+      actionCost:1, spiteCost:2, body:"", mind:"", soul:"", slumber:0,
+      gameText:"Doelwit krijgt -2 Mind tot het einde van je volgende beurt.",
+      flavorText:"\u201cKijk niet te lang terug.\u201d"
+    },
+    Destiny: {
+      type:"Destiny", name:"The Sunken Spire", phase:"Master", subtypes:[],
+      theme:"", location:"Ru\u00efneveld", image:"",
+      actionCost:0, spiteCost:0, body:0, mind:2, soul:3, slumber:0,
+      gameText:"Zolang deze in het spel is: alle Incantations kosten 1 Spite minder.",
+      flavorText:""
+    },
+    Burden: {
+      type:"Burden", name:"Old Debt", phase:"Starter", subtypes:[],
+      theme:"", location:"", image:"",
+      actionCost:1, spiteCost:0, body:1, mind:0, soul:0, slumber:0,
+      gameText:"Aan het begin van je beurt: verlies 1 Soul tenzij je 1 Action betaalt.",
+      flavorText:""
+    }
+  };
+  const TYPES = Object.keys(SAMPLE_CARDS);
+  let activeType = "Manifestation";
+
+  // ---------- State: standaardwaarden = exact de huidige bestanden ----------
+  const DEFAULT_STATE = {
+    gold:"#c9a24b", panel2:"#241f33", parchment:"#efe6d1", parchmentInk:"#2c2318",
+    fontDisplay:"Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif",
+    fontMono:"'SF Mono', Consolas, Monaco, monospace",
+    cWizard:"#3d5a80", cManifestation:"#3f6b4a", cIncantation:"#9c3b4f",
+    cHex:"#5b4b8a", cDestiny:"#b8933a", cBurden:"#5c4a3a",
+    frameWidth:280, frameMinHeight:390, frameRadius:10, framePadding:5,
+    innerRadius:6, artHeight:94,
+    nameFont:16, nameMarginTop:20, ribbonFont:10, keywordFont:12.5, textFont:12.5,
+    flavorFont:11, flavorColor:"#5a4a34", phaseFont:10, phaseColor:"#2c2318",
+    pipSize:39, pipFont:18, actionBg:"#332711", spiteBg:"#3a1e29", spiteBorder:"#7c3f52",
+    statsGap:10, statSize:30, statNFont:12, statLFont:7,
+    tFire:"#c1462b", tEarth:"#6b5636", tWater:"#2f6f8f", tSky:"#6fa8c9", tShadow:"#4a3a5c", tLight:"#b9a666",
+    bgTintStrength:22
+  };
+  let state = Object.assign({}, DEFAULT_STATE);
+
+  const DEFAULT_TYPE_CONFIG = JSON.parse(JSON.stringify(TYPE_CONFIG));
+
+  // ---------- Controle-groepen ----------
+  const FIELD_GROUPS = {
+    tokens: [
+      { key:"gold", label:"Goud (--gold)", type:"color" },
+      { key:"panel2", label:"Pip-achtergrond (--panel-2)", type:"color" },
+      { key:"parchment", label:"Perkament (--parchment)", type:"color" },
+      { key:"parchmentInk", label:"Perkament-inkt / tekst (--parchment-ink)", type:"color" },
+      { key:"fontDisplay", label:"Display-font (--font-display)", type:"text" },
+      { key:"fontMono", label:"Mono-font (--font-mono)", type:"text" }
+    ],
+    typeColors: [
+      { key:"cWizard", label:"Wizard", type:"color" },
+      { key:"cManifestation", label:"Manifestation", type:"color" },
+      { key:"cIncantation", label:"Incantation", type:"color" },
+      { key:"cHex", label:"Hex", type:"color" },
+      { key:"cDestiny", label:"Destiny", type:"color" },
+      { key:"cBurden", label:"Burden", type:"color" }
+    ],
+    themeBg: [
+      { key:"tFire", label:"Fire", type:"color" },
+      { key:"tEarth", label:"Earth", type:"color" },
+      { key:"tWater", label:"Water", type:"color" },
+      { key:"tSky", label:"Sky", type:"color" },
+      { key:"tShadow", label:"Shadow", type:"color" },
+      { key:"tLight", label:"Light", type:"color" },
+      { key:"bgTintStrength", label:"Tint-sterkte (hoe sterk de themakleur doorheen het perkament mengt)", unit:"%", min:0, max:100 }
+    ],
+    dimensions: [
+      { key:"frameWidth", label:"Kaartbreedte", unit:"px", min:200, max:400 },
+      { key:"frameMinHeight", label:"Kaart min-hoogte", unit:"px", min:280, max:520 },
+      { key:"frameRadius", label:"Afronding buitenrand", unit:"px", min:0, max:30 },
+      { key:"framePadding", label:"Padding buitenrand", unit:"px", min:0, max:20 },
+      { key:"innerRadius", label:"Afronding binnenrand", unit:"px", min:0, max:24 },
+      { key:"artHeight", label:"Hoogte art-vak", unit:"px", min:40, max:200 }
+    ],
+    typography: [
+      { key:"nameFont", label:"Naam-banner", unit:"px", min:10, max:26, step:0.5 },
+      { key:"nameMarginTop", label:"Ruimte boven naam", unit:"px", min:0, max:40 },
+      { key:"ribbonFont", label:"Type-ribbon", unit:"px", min:7, max:16, step:0.5 },
+      { key:"keywordFont", label:"Keyword-regel (Slumber)", unit:"px", min:9, max:18, step:0.5 },
+      { key:"textFont", label:"Kaarttekst", unit:"px", min:9, max:18, step:0.5 },
+      { key:"flavorFont", label:"Flavor text", unit:"px", min:8, max:16, step:0.5 },
+      { key:"flavorColor", label:"Flavor text kleur", type:"color" },
+      { key:"phaseFont", label:"Phase-strip", unit:"px", min:7, max:16, step:0.5 },
+      { key:"phaseColor", label:"Phase-strip tekstkleur", type:"color" }
+    ],
+    pips: [
+      { key:"pipSize", label:"Pip-formaat", unit:"px", min:24, max:56 },
+      { key:"pipFont", label:"Pip-tekstgrootte", unit:"px", min:10, max:26 },
+      { key:"actionBg", label:"Action-pip achtergrond", type:"color" },
+      { key:"spiteBg", label:"Spite-pip achtergrond", type:"color" },
+      { key:"spiteBorder", label:"Spite-pip rand", type:"color" },
+      { key:"statsGap", label:"Ruimte tussen stats", unit:"px", min:0, max:30 },
+      { key:"statSize", label:"Stat-cirkel formaat", unit:"px", min:20, max:48 },
+      { key:"statNFont", label:"Stat-getal tekstgrootte", unit:"px", min:8, max:18 },
+      { key:"statLFont", label:"Stat-label tekstgrootte", unit:"px", min:5, max:12 }
+    ]
+  };
+
+  function buildFieldRow(desc){
+    const row = document.createElement("div");
+    row.className = "field-row";
+    const label = document.createElement("label");
+    label.textContent = desc.label;
+    row.appendChild(label);
+
+    const input = document.createElement("input");
+    input.type = desc.type || "number";
+    if (input.type === "number"){
+      input.min = desc.min; input.max = desc.max; input.step = desc.step || 1;
+    }
+    input.value = state[desc.key];
+    input.addEventListener("input", () => {
+      state[desc.key] = (input.type === "number") ? parseFloat(input.value) : input.value;
+      applyOverrides();
+    });
+    row.appendChild(input);
+
+    if (desc.unit){
+      const unit = document.createElement("span");
+      unit.className = "field-unit";
+      unit.textContent = desc.unit;
+      row.appendChild(unit);
+    }
+    return row;
+  }
+
+  const GROUP_CONTAINERS = {
+    tokens: document.getElementById("group-tokens"),
+    typeColors: document.getElementById("group-type-colors"),
+    themeBg: document.getElementById("group-theme-bg"),
+    dimensions: document.getElementById("group-dimensions"),
+    typography: document.getElementById("group-typography"),
+    pips: document.getElementById("group-pips")
+  };
+  Object.keys(FIELD_GROUPS).forEach(groupKey => {
+    FIELD_GROUPS[groupKey].forEach(desc => {
+      GROUP_CONTAINERS[groupKey].appendChild(buildFieldRow(desc));
+    });
+  });
+
+  // ---------- "Welke velden per kaarttype" (TYPE_CONFIG) ----------
+  const FIELD_LABELS = { theme:"Thema", location:"Locatie", cost:"Kost", stats:"Stats" };
+  function buildTypeConfigTable(){
+    const table = document.createElement("table");
+    table.className = "fields-table";
+    const thead = document.createElement("tr");
+    thead.innerHTML = "<th>Type</th>" + Object.keys(FIELD_LABELS).map(f => `<th>${FIELD_LABELS[f]}</th>`).join("");
+    table.appendChild(thead);
+    TYPES.forEach(type => {
+      const tr = document.createElement("tr");
+      let rowHtml = `<td>${type}</td>`;
+      tr.innerHTML = rowHtml;
+      Object.keys(FIELD_LABELS).forEach(field => {
+        const td = document.createElement("td");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = TYPE_CONFIG[type][field];
+        cb.addEventListener("change", () => {
+          TYPE_CONFIG[type][field] = cb.checked;
+          if (field === "theme" && type === activeType) syncThemeSelect();
+          renderPreview();
+        });
+        td.appendChild(cb);
+        tr.appendChild(td);
+      });
+      table.appendChild(tr);
+    });
+    document.getElementById("group-fields").appendChild(table);
+  }
+  buildTypeConfigTable();
+
+  // ---------- Type-tabs ----------
+  const tabsEl = document.getElementById("type-tabs");
+  const themeSelectEl = document.getElementById("theme-preview-select");
+  ["", "Fire", "Earth", "Water", "Sky", "Shadow", "Light"].forEach(t => {
+    const opt = document.createElement("option");
+    opt.value = t;
+    opt.textContent = t ? t : "— geen thema —";
+    themeSelectEl.appendChild(opt);
+  });
+  themeSelectEl.addEventListener("change", () => {
+    SAMPLE_CARDS[activeType].theme = themeSelectEl.value;
+    renderPreview();
+  });
+
+  TYPES.forEach(type => {
+    const tab = document.createElement("button");
+    tab.className = "type-tab" + (type === activeType ? " active" : "");
+    tab.textContent = type;
+    tab.addEventListener("click", () => {
+      activeType = type;
+      Array.from(tabsEl.children).forEach(c => c.classList.toggle("active", c === tab));
+      syncThemeSelect();
+      renderPreview();
+    });
+    tabsEl.appendChild(tab);
+  });
+
+  function syncThemeSelect(){
+    // Enkel tonen/relevant voor kaarttypes waar het Theme-veld aan staat.
+    if (TYPE_CONFIG[activeType].theme){
+      themeSelectEl.style.display = "";
+      themeSelectEl.value = SAMPLE_CARDS[activeType].theme || "";
+    } else {
+      themeSelectEl.style.display = "none";
+    }
+  }
+  syncThemeSelect();
+
+  // ---------- Live preview + overrides ----------
+  function renderPreview(){
+    document.getElementById("preview-card").innerHTML = buildCardFrameHtml(SAMPLE_CARDS[activeType]);
+  }
+
+  function applyOverrides(){
+    const css = `
+:root{
+  --gold: ${state.gold};
+  --panel-2: ${state.panel2};
+  --parchment: ${state.parchment};
+  --parchment-ink: ${state.parchmentInk};
+  --font-display: ${state.fontDisplay};
+  --font-mono: ${state.fontMono};
+  --c-wizard: ${state.cWizard};
+  --c-manifestation: ${state.cManifestation};
+  --c-incantation: ${state.cIncantation};
+  --c-hex: ${state.cHex};
+  --c-destiny: ${state.cDestiny};
+  --c-burden: ${state.cBurden};
+  --t-fire: ${state.tFire};
+  --t-earth: ${state.tEarth};
+  --t-water: ${state.tWater};
+  --t-sky: ${state.tSky};
+  --t-shadow: ${state.tShadow};
+  --t-light: ${state.tLight};
+  --card-bg-tint-strength: ${state.bgTintStrength}%;
+}
+.card-frame{
+  width: ${state.frameWidth}px;
+  min-height: ${state.frameMinHeight}px;
+  border-radius: ${state.frameRadius}px;
+  padding: ${state.framePadding}px;
+}
+.card-inner{ border-radius: ${state.innerRadius}px; }
+.card-art{ height: ${state.artHeight}px; }
+.card-name-banner{ font-size: ${state.nameFont}px; margin: ${state.nameMarginTop}px 10px 4px; }
+.card-type-ribbon{ font-size: ${state.ribbonFont}px; }
+.card-keyword-line{ font-size: ${state.keywordFont}px; }
+.card-text{ font-size: ${state.textFont}px; }
+.card-flavor{ font-size: ${state.flavorFont}px; color: ${state.flavorColor}; }
+.card-phase-strip{ font-size: ${state.phaseFont}px; color: ${state.phaseColor}; }
+.pip{ width: ${state.pipSize}px; height: ${state.pipSize}px; font-size: ${state.pipFont}px; }
+.pip.action{ background: ${state.actionBg}; }
+.pip.spite{ background: ${state.spiteBg}; border-color: ${state.spiteBorder}; }
+.card-stats{ gap: ${state.statsGap}px; }
+.stat{ width: ${state.statSize}px; height: ${state.statSize}px; }
+.stat .n{ font-size: ${state.statNFont}px; }
+.stat .l{ font-size: ${state.statLFont}px; }
+`;
+    document.getElementById("override-card-css").textContent = css;
+  }
+
+  function refreshAllInputs(){
+    Object.keys(FIELD_GROUPS).forEach(groupKey => {
+      const container = GROUP_CONTAINERS[groupKey];
+      container.innerHTML = "";
+      FIELD_GROUPS[groupKey].forEach(desc => container.appendChild(buildFieldRow(desc)));
+    });
+  }
+
+  // ---------- Reset ----------
+  document.getElementById("btn-reset").addEventListener("click", () => {
+    state = Object.assign({}, DEFAULT_STATE);
+    Object.keys(TYPE_CONFIG).forEach(type => {
+      Object.assign(TYPE_CONFIG[type], DEFAULT_TYPE_CONFIG[type]);
+    });
+    refreshAllInputs();
+    document.getElementById("group-fields").innerHTML = "";
+    buildTypeConfigTable();
+    applyOverrides();
+    renderPreview();
+  });
+
+  // ---------- Downloads ----------
+  function downloadText(filename, text){
+    const blob = new Blob([text], { type:"text/plain;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  }
+
+  document.getElementById("btn-export-css").addEventListener("click", () => {
+    const baseCss = document.getElementById("base-card-css").textContent;
+    const overrideCss = document.getElementById("override-card-css").textContent;
+    const stamp = new Date().toLocaleString("nl-BE");
+    const finalCss = baseCss + `\n\n/* ==== Aangepast via Kaart Layout Editor — ${stamp} ==== */\n` + overrideCss;
+    downloadText("card-render.css", finalCss);
+  });
+
+  document.getElementById("btn-export-js").addEventListener("click", () => {
+    const baseJs = document.getElementById("card-render-js").textContent;
+    const newConfigLines = TYPES.map(type => {
+      const c = TYPE_CONFIG[type];
+      const pad = " ".repeat(Math.max(1, 15 - type.length));
+      return `  ${type}:${pad}{ theme:${c.theme}, location:${c.location}, cost:${c.cost}, stats:${c.stats} }`;
+    }).join(",\n");
+    const newBlock = `const TYPE_CONFIG = {\n${newConfigLines}\n};`;
+    const finalJs = baseJs.replace(/const TYPE_CONFIG = \{[\s\S]*?\n\};/, newBlock);
+    downloadText("card-render.js", finalJs);
+  });
+
+  document.getElementById("btn-export-tokens").addEventListener("click", () => {
+    const snippet =
+`    --gold: ${state.gold};
+    --panel-2: ${state.panel2};
+    --parchment: ${state.parchment};
+    --parchment-ink: ${state.parchmentInk};
+
+    --c-wizard: ${state.cWizard};
+    --c-manifestation: ${state.cManifestation};
+    --c-incantation: ${state.cIncantation};
+    --c-hex: ${state.cHex};
+    --c-destiny: ${state.cDestiny};
+    --c-burden: ${state.cBurden};
+
+    --t-fire: ${state.tFire};
+    --t-earth: ${state.tEarth};
+    --t-water: ${state.tWater};
+    --t-sky: ${state.tSky};
+    --t-shadow: ${state.tShadow};
+    --t-light: ${state.tLight};
+    --card-bg-tint-strength: ${state.bgTintStrength}%;
+
+    --font-display: ${state.fontDisplay};
+    --font-mono: ${state.fontMono};`;
+    const box = document.getElementById("snippet-box");
+    box.style.display = "block";
+    box.textContent = "Plak dit in het :root{ ... } blok van cardbuilder.html (en elke andere host-pagina die deze tokens definieert, bv. arena.html):\n\n" + snippet;
+    if (navigator.clipboard){
+      navigator.clipboard.writeText(snippet).catch(() => {});
+    }
+    downloadText("card-tokens-snippet.css", snippet);
+  });
+
+  // ---------- Init ----------
+  applyOverrides();
+  renderPreview();
+})();
+</script>
+</body>
+</html>

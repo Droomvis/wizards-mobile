@@ -248,6 +248,33 @@
     background: rgba(226,197,131,0.08);
   }
 
+  /* Ready/Preparing-veld, boven de fontein, enkel zichtbaar vóór beurt 1
+     (zolang arena.readyCheck bestaat — zie buildArenaReadyPanelHtml). */
+  .arena-ready-panel{
+    position:absolute; top:6px; left:50%; transform:translateX(-50%); z-index:3;
+    display:flex; align-items:center; gap:14px;
+    background: rgba(20,16,28,0.94); border:1px solid var(--gold); border-radius:10px;
+    padding:8px 16px; box-shadow:0 4px 18px rgba(0,0,0,0.45);
+  }
+  .arena-ready-seat{
+    display:flex; flex-direction:column; align-items:center; gap:4px; min-width:110px;
+  }
+  .arena-ready-name{
+    font-family: var(--font-display); font-size:13px; color: var(--gold-soft);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:140px;
+  }
+  .arena-ready-seat.is-ready .arena-ready-name{ color:#a8e6a8; }
+  .arena-ready-vs{ font-size:11px; text-transform:uppercase; letter-spacing:1px; color: var(--ink-dim); }
+  .arena-ready-toggle-btn{
+    font-size:12px; padding:4px 12px; border-radius:6px;
+    border:1px solid var(--border); background:#241d33; color: var(--ink-dim); cursor:pointer;
+  }
+  .arena-ready-toggle-btn:hover:not(:disabled){ border-color: var(--gold); background:#2a2338; }
+  .arena-ready-toggle-btn.is-ready{
+    border-color:#5ea25e; background: rgba(94,162,94,0.18); color:#a8e6a8;
+  }
+  .arena-ready-toggle-btn:disabled{ cursor:default; opacity:0.75; }
+
   /* Specifieke kaart die als target dient tijdens een cast-drag (incl. een
      kaart die al op de stack ligt) — los van de outline op de hele zone. */
   .arena-chip.cast-target-hover{
@@ -543,6 +570,17 @@
     font-family: var(--font-mono); letter-spacing:0.3px;
   }
 
+  /* Vulnerable/Confused/Forlorn op een permanent (Manifestation/Destiny) —
+     cfr. Gamerules-specificatie.txt 2c. Zelfde kleuren als de bestaande
+     .shield-status-badge (Wizard-schilden), maar hier absoluut gepositioneerd
+     zodat 'm ook zichtbaar is zonder de kaart te openen, en met een echt
+     gevolg (de volgende schade doodt de kaart) i.p.v. puur informatief. */
+  .chip-status-tag{
+    position:absolute; top:1px; left:3px; font-size:7.5px; text-transform:uppercase;
+    letter-spacing:0.3px; color:#f5c9d3; background:rgba(122,51,69,0.75);
+    border-radius:4px; padding:0 3px; font-family: var(--font-mono);
+  }
+
   #arena-hover-preview{
     position:fixed; z-index:6000; pointer-events:none; display:none;
     filter: drop-shadow(0 12px 26px rgba(0,0,0,0.6));
@@ -827,6 +865,7 @@
 </div>
 
 <script src="shared/card-data.js"></script>
+<script src="shared/game-rules.js"></script>
 <script src="shared/card-render.js"></script>
 <script src="shared/hat-avatar.js"></script>
 <script src="shared/drive-auth.js"></script>
@@ -961,9 +1000,28 @@
     };
   }
 
+  // Destiny-kaarten horen volgens de regels bij de start van de partij al
+  // in de hand te zitten (niet pas via de normale trekbeurt) — de speler
+  // beslist zelf, en manueel, in welke zone elke Destiny in het spel komt
+  // (zie de ready-check hieronder). Hier dus: schud het volledige deck,
+  // haal er dan alle Destiny-instanties uit en leg die apart in de hand;
+  // de rest blijft (in geschudde volgorde) het deck.
+  function splitOutDestinies(instances){
+    const hand = [], deck = [];
+    instances.forEach(ci => {
+      const card = findCard(ci.cardId);
+      if (card && card.type === "Destiny") hand.push(ci);
+      else deck.push(ci);
+    });
+    return { hand, deck };
+  }
+
   function buildPlayerFromSeat(seat){
     const p = emptyPlayerState((seat && seat.name) || "Speler");
-    p.deck = shuffleArray(buildDeckInstances(seat && seat.qty));
+    const shuffled = shuffleArray(buildDeckInstances(seat && seat.qty));
+    const { hand, deck } = splitOutDestinies(shuffled);
+    p.hand = hand;
+    p.deck = deck;
     return p;
   }
 
@@ -1012,7 +1070,11 @@
   let myPendingPick = { name: "", qty: null, deckLabel: "" };
 
   function freshSetupArena(){
-    return { phase: "setup", seats: { p0: null, p1: null } };
+    // roomCode: welke room deze (setup- of board-)stand claimt te zijn.
+    // Cruciaal om te kunnen detecteren of een lokaal gecachete `arena`
+    // (autosave) nog wel bij de room hoort die we NU joinen — zie de
+    // vergelijking in mpOpenSocket() hieronder.
+    return { phase: "setup", seats: { p0: null, p1: null }, roomCode: null };
   }
 
   function currentMySeatPick(){
@@ -1166,9 +1228,13 @@
     if (soloMode){
       const p1 = buildPlayerFromSeat({ name: document.getElementById("my-name").value || "Speler 1", qty: myPendingPick.qty });
       const p2 = buildPlayerFromSeat({ name: document.getElementById("p2-name").value || "Speler 2", qty: soloP2Pick.qty });
-      arena = { phase: "board", players: [p1, p2], stack: [], log: [], chat: [], settings: freshArenaSettings() };
+      arena = {
+        phase: "board", players: [p1, p2], stack: [], log: [], chat: [], settings: freshArenaSettings(),
+        turn: null,
+        readyCheck: { starterIdx: starterChoice === "opponent" ? 1 : 0, ready: [false, false] }
+      };
       renderArenaTab();
-      startPlayerTurn(starterChoice === "opponent" ? 1 : 0);
+      saveArena();
       return;
     }
 
@@ -1192,9 +1258,17 @@
     // volledige `arena` (inclusief wie begint) wordt zoals gewoonlijk
     // gewoon uitgezonden, dus beide kanten komen op hetzelfde resultaat uit.
     const startIdx = Math.random() < 0.5 ? 0 : 1;
-    arena = { phase: "board", players, stack: [], log: [], chat: [], settings: freshArenaSettings() };
+    // roomCode overnemen uit de setup-stand (i.p.v. verloren te laten gaan
+    // bij deze overschrijving) zodat een latere reconnect naar dezelfde
+    // room deze lopende match nog steeds herkent als "bij mij horend".
+    const roomCodeForMatch = (arena && arena.roomCode) || null;
+    arena = {
+      phase: "board", players, stack: [], log: [], chat: [], settings: freshArenaSettings(), roomCode: roomCodeForMatch,
+      turn: null,
+      readyCheck: { starterIdx: startIdx, ready: [false, false] }
+    };
     renderArenaTab();
-    startPlayerTurn(startIdx);
+    saveArena();
   }
 
   document.getElementById("btn-start-arena").addEventListener("click", startArena);
@@ -1353,6 +1427,9 @@
     if (!arena.settings.enforceCastLegality) return { ok: true };
 
     if (arena.stack.length === 0){
+      if (arena.turn === null || arena.turn === undefined){
+        return { ok: false, reason: "Het spel is nog niet gestart — wacht tot beide spelers Ready zijn." };
+      }
       if (arena.turn !== casterIdx){
         return { ok: false, reason: `Het is niet jouw beurt (aan zet: ${arena.players[arena.turn] ? arena.players[arena.turn].name : "?"}).` };
       }
@@ -1449,13 +1526,28 @@
           lastHovered.classList.remove("drop-hover");
           const destZone = lastHovered.dataset.zone;
 
+          // Destinies vóór beurt 1 (tijdens de ready-check, arena.turn is dan
+          // nog null): die moeten manueel in een zone geplaatst worden, maar
+          // NIET via de stack/Resolve-flow — er is nog geen beurt/prioriteit
+          // om aan te toetsen. Sleep dus rechtstreeks naar de In Play-zone.
+          const draggedCard = findCard(ci.cardId);
+          const isPreGameDestinyPlacement = zone === "hand" && (arena.turn === null || arena.turn === undefined)
+            && draggedCard && draggedCard.type === "Destiny"
+            && destZone && destZone.indexOf("inPlay") === 0;
+
           // Casten: een kaart die vanuit de hand op de stack-zone zelf, of
           // rechtstreeks op een In Play-zone/kaart wordt gesleept, gaat niet
           // meteen naar die bestemming maar wordt onderschept en op de stack
           // gelegd met een target erbij — zie castCardToStack hieronder.
-          const isCastAttempt = zone === "hand" && (destZone === "stack" || (destZone && destZone.indexOf("inPlay") === 0));
+          const isCastAttempt = !isPreGameDestinyPlacement && zone === "hand" && (destZone === "stack" || (destZone && destZone.indexOf("inPlay") === 0));
           const castLegality = isCastAttempt ? checkCastLegality(playerIdx, ci) : null;
-          if (isCastAttempt && !castLegality.ok){
+          if (isPreGameDestinyPlacement){
+            const section = lastHovered.closest(".arena-player");
+            if (section){
+              const destPlayerIdx = parseInt(section.dataset.playerIdx, 10);
+              performCardMove(playerIdx, zone, ci.instanceId, destPlayerIdx, destZone);
+            }
+          } else if (isCastAttempt && !castLegality.ok){
             showArenaNotice("Cast niet toegestaan", castLegality.reason);
           } else if (isCastAttempt){
             let destPlayerIdxForZone = null;
@@ -1511,6 +1603,25 @@
     const ci = findInstance(playerIdx, zone, instanceId);
     if (!ci) return;
     if (!ci.counters) ci.counters = freshCounters();
+
+    // Manifestation/Destiny-schade & dood (cfr. Gamerules-specificatie.txt,
+    // sectie 2c): is deze permanent AL Vulnerable/Confused/Forlorn (zwarte
+    // Damage-teller >= de stat van de zone waarin ze ligt) vóór deze nieuwe
+    // schade, dan doodt ELKE volgende schade 'm meteen — naar discard, i.p.v.
+    // de teller nog verder te verhogen. Enkel van toepassing op Manifestation/
+    // Destiny (de twee typen waarvoor deze regel geldt) en enkel op de zwarte
+    // (Damage-)teller in een in-play zone.
+    if (color === "black" && zoneAllowsCounters(zone)){
+      const card = findCard(ci.cardId);
+      if (isPermanentVulnerable(card, zone, ci.counters)){
+        const label = permanentStatusLabel(card, zone, ci.counters);
+        const nameForLog = card ? (card.name || "(naamloos)") : "(verwijderde kaart)";
+        logAction(`💀 "${nameForLog}" was al ${label} en sterft door nieuwe schade`, "death");
+        performCardMove(playerIdx, zone, instanceId, playerIdx, "discard");
+        return;
+      }
+    }
+
     ci.counters[color] = (ci.counters[color] || 0) + 1;
     saveArena();
     renderArenaBoard();
@@ -1601,6 +1712,7 @@
               <span class="zoom-c-value">${counters.black || 0}</span>
               <button type="button" id="zoom-black-plus">+</button>
             </div>
+            ${permanentStatusLabel(card, zone, counters) ? `<div class="zoom-hint" style="color:#e79aaa;">⚠ ${permanentStatusLabel(card, zone, counters)} — nieuwe schade doodt deze kaart (naar discard).</div>` : ""}
           </div>
           ` : `<div class="zoom-hint">Tellers zijn enkel beschikbaar voor kaarten die in het spel liggen (Body/Mind/Soul).</div>`}
 
@@ -1620,6 +1732,16 @@
       const cardForLog = findCard(ci.cardId);
       const nameForLog = cardForLog ? (cardForLog.name || "(naamloos)") : "(verwijderde kaart)";
       const ownerForLog = (playerIdx !== null && playerIdx !== undefined && arena.players[playerIdx]) ? ` (${arena.players[playerIdx].name})` : "";
+      // Slumber (printed op de kaart, default 0): bij het exhausten wordt
+      // het witte Time Counter-getal meteen op de Slumber-waarde gezet —
+      // die telt daarna bij elke actie van de eigenaar af (zie spendAction)
+      // tot de kaart vanzelf weer ready wordt. Enkel relevant in een zone
+      // die tellers toont (in-play); bij Slumber 0 blijft de teller op 0,
+      // en readiet de kaart al bij de eerstvolgende actie.
+      if (ci.tapped && zoneAllowsCounters(zone)){
+        if (!ci.counters) ci.counters = freshCounters();
+        ci.counters.white = cardForLog ? (cardForLog.slumber || 0) : 0;
+      }
       logAction(`${ci.tapped ? "⤵ Exhaust" : "↺ Ready"}: ${nameForLog}${ownerForLog}`, "tap");
       saveArena();
       renderArenaBoard();
@@ -1811,6 +1933,40 @@
     delete entry.casterIdx; delete entry.targetLabel; delete entry.destPlayerIdx; delete entry.destZone; delete entry.priorityWith;
     destPlayer[destZoneKey].push(entry);
     logAction(`✨ "${cardName}" resolvet → ${ZONE_LABELS[destZoneKey] || destZoneKey} (${destPlayer.name})`, "resolve");
+    saveArena();
+    renderArenaBoard();
+  }
+
+  // Bepaalt, in netwerkmodus, welke playerIdx (0/1) deze client mag bedienen
+  // — zelfde afleiding als elders (isOpponentHand, de greyed-out Resolve-knop
+  // enz.). In solo-modus is er geen restrictie: dit ene toestel bestuurt
+  // sowieso beide spelers, dus geeft deze functie dan null (= "alles mag").
+  function clientOwnedPlayerIdx(){
+    if (soloMode) return null;
+    if (mySeat === "p0") return 0;
+    if (mySeat === "p1") return 1;
+    return null;
+  }
+
+  // Ready/Preparing-toggle vóór beurt 1 (zie buildArenaReadyPanel). Beide
+  // spelers moeten zelf hun eigen vak omschakelen; zodra ready[0] én ready[1]
+  // beide true zijn, start automatisch beurt 1 van de vooraf willekeurig
+  // bepaalde starter (readyCheck.starterIdx, bepaald in startArena()).
+  function toggleReady(seatIdx){
+    if (!arena || !arena.readyCheck) return;
+    if (!soloMode){
+      const owned = clientOwnedPlayerIdx();
+      if (owned !== null && owned !== seatIdx) return; // niet je eigen vak — de knop staat sowieso al disabled
+    }
+    arena.readyCheck.ready[seatIdx] = !arena.readyCheck.ready[seatIdx];
+    const p = arena.players[seatIdx];
+    logAction(`${p ? p.name : "Speler"} is nu ${arena.readyCheck.ready[seatIdx] ? "Ready" : "aan het voorbereiden"}.`, "misc");
+    if (arena.readyCheck.ready[0] && arena.readyCheck.ready[1]){
+      const starterIdx = arena.readyCheck.starterIdx;
+      delete arena.readyCheck;
+      startPlayerTurn(starterIdx); // roept zelf al saveArena()+renderArenaBoard() aan
+      return;
+    }
     saveArena();
     renderArenaBoard();
   }
@@ -2011,25 +2167,34 @@
     renderArenaBoard();
   }
 
-  // Klik op "⚡ Actions": verbruikt één actie (teller -1) en tikt bij elk
-  // permanent van deze speler (alle kaarten in play, getapt of niet) een
-  // wit Time Counter weg indien aanwezig — zelfde mechanisme als bij Rest,
-  // maar dan toegepast op alle permanents i.p.v. enkel de getapte.
+  // Klik op "⚡ Actions": verbruikt één actie (teller -1).
+  // Slumber-mechanisme: enkel getapte (exhausted) permanents tellen mee.
+  // Staat er nog een wit Time Counter op, dan gaat er één af; staat de
+  // teller al op 0 (printed Slumber 0, of afgeteld in een vorige actie), dan
+  // wordt de kaart meteen ready — zelfde logica als bij Rest (restPlayer),
+  // maar dan bij ELKE actie i.p.v. enkel bij Rest. Ongetapte kaarten worden
+  // niet meer aangeraakt (voorheen wel, ongeacht tapped-status — dat klopte
+  // niet met Slumber: een teller heeft enkel betekenis voor een exhausted
+  // kaart).
   function spendAction(playerIdx){
     const p = arena.players[playerIdx];
     if ((p.counters.actions || 0) <= 0) return;
-    let tickedCount = 0;
+    let tickedCount = 0, readiedCount = 0;
     ["inPlayBody", "inPlayMind", "inPlaySoul"].forEach(zone => {
       p[zone].forEach(ci => {
+        if (!ci.tapped) return;
         if (!ci.counters) ci.counters = freshCounters();
         if ((ci.counters.white || 0) > 0){
           ci.counters.white -= 1;
           tickedCount++;
+        } else {
+          ci.tapped = false;
+          readiedCount++;
         }
       });
     });
     p.counters.actions = Math.max(0, (p.counters.actions || 0) - 1);
-    logAction(`⚡ ${p.name} gebruikt een actie` + (tickedCount ? ` (${tickedCount} tijdteller(s) verwerkt)` : ""), "action");
+    logAction(`⚡ ${p.name} gebruikt een actie` + (tickedCount || readiedCount ? ` (${tickedCount} tijdteller(s) verwerkt, ${readiedCount} kaart(en) ready)` : ""), "action");
     saveArena();
     renderArenaBoard();
   }
@@ -2097,6 +2262,38 @@
     return zone === "inPlayBody" || zone === "inPlayMind" || zone === "inPlaySoul";
   }
 
+  // Manifestation/Destiny-schade & dood (cfr. Gamerules-specificatie.txt,
+  // sectie 2c): elke Manifestation/Destiny die in het spel ligt, ligt altijd
+  // in exact één van de drie zones en kan enkel schade van de overeenkomstige
+  // stat krijgen. Zodra de zwarte Damage-teller >= die stat, is de permanent
+  // Vulnerable/Confused/Forlorn — zelfde naamgeving als shieldStatusBadge()
+  // hieronder voor Wizard-schilden, maar hier WEL met een gevolg (zie
+  // addCounterToInstance hierboven: elke volgende schade doodt de kaart),
+  // in tegenstelling tot de puur informatieve Wizard-versie.
+  const PERMANENT_DAMAGE_LABELS = { inPlayBody: "Vulnerable", inPlayMind: "Confused", inPlaySoul: "Forlorn" };
+  const PERMANENT_DAMAGE_STATKEY = { inPlayBody: "body", inPlayMind: "mind", inPlaySoul: "soul" };
+
+  function permanentTakesZoneDamage(card){
+    return !!card && (card.type === "Manifestation" || card.type === "Destiny");
+  }
+
+  function permanentRelevantStat(card, zone){
+    const statKey = PERMANENT_DAMAGE_STATKEY[zone];
+    if (!statKey) return 0;
+    const raw = card[statKey];
+    return (raw === "" || raw === null || raw === undefined) ? 0 : (parseInt(raw, 10) || 0);
+  }
+
+  function isPermanentVulnerable(card, zone, counters){
+    if (!permanentTakesZoneDamage(card) || !PERMANENT_DAMAGE_LABELS[zone]) return false;
+    const dmg = (counters && counters.black) || 0;
+    return dmg >= permanentRelevantStat(card, zone);
+  }
+
+  function permanentStatusLabel(card, zone, counters){
+    return isPermanentVulnerable(card, zone, counters) ? PERMANENT_DAMAGE_LABELS[zone] : "";
+  }
+
   function buildCounterBadgesHtml(ci, zone){
     if (!zoneAllowsCounters(zone)) return "";
     const c = ci.counters || freshCounters();
@@ -2119,7 +2316,11 @@
       wrap.innerHTML = `<div class="chip-name" style="color:var(--ink-dim);">Verwijderde kaart</div>`;
     } else {
       wrap.setAttribute("style", `--type-color: var(${TYPE_COLOR_VAR[card.type] || "--gold"});`);
-      wrap.innerHTML = buildChipContentHtml(card, zoneAllowsCounters(zone)) + (ci.tapped ? `<span class="chip-tapped-tag">TAP</span>` : "") + buildCounterBadgesHtml(ci, zone);
+      const statusLabel = permanentStatusLabel(card, zone, ci.counters);
+      wrap.innerHTML = buildChipContentHtml(card, zoneAllowsCounters(zone))
+        + (ci.tapped ? `<span class="chip-tapped-tag">TAP</span>` : "")
+        + (statusLabel ? `<span class="chip-status-tag" title="${statusLabel} — volgende schade doodt deze kaart">${statusLabel}</span>` : "")
+        + buildCounterBadgesHtml(ci, zone);
       wrap.addEventListener("mouseenter", () => showArenaPreview(wrap, card));
       wrap.addEventListener("mouseleave", hideArenaPreview);
     }
@@ -2626,6 +2827,37 @@
     return wrap;
   }
 
+  // Ready/Preparing-veld, vóór beurt 1: elke speler schakelt zijn eigen vak
+  // om; in netwerkmodus mag je enkel je eigen vak bedienen (het andere is
+  // louter een live-weergave van de tegenstander), in solo-modus mag je
+  // beide vakken bedienen (zie clientOwnedPlayerIdx()). Geeft "" terug zodra
+  // arena.readyCheck niet (meer) bestaat, d.w.z. beurt 1 al gestart is.
+  function buildArenaReadyPanelHtml(){
+    if (!arena || !arena.readyCheck) return "";
+    const owned = clientOwnedPlayerIdx();
+    const seatHtml = (seatIdx) => {
+      const p = arena.players[seatIdx];
+      const isReady = !!arena.readyCheck.ready[seatIdx];
+      const canToggle = soloMode || owned === null || owned === seatIdx;
+      return `
+        <div class="arena-ready-seat${isReady ? " is-ready" : ""}">
+          <span class="arena-ready-name">${escapeHtml(p ? p.name : `Speler ${seatIdx + 1}`)}</span>
+          <button type="button" class="btn arena-ready-toggle-btn${isReady ? " is-ready" : ""}"
+            data-ready-seat-idx="${seatIdx}" ${canToggle ? "" : "disabled"}>
+            ${isReady ? "✓ Ready" : "Preparing…"}
+          </button>
+        </div>
+      `;
+    };
+    return `
+      <div class="arena-ready-panel">
+        ${seatHtml(0)}
+        <div class="arena-ready-vs">VS</div>
+        ${seatHtml(1)}
+      </div>
+    `;
+  }
+
   function buildArenaFountainStrip(){
     const strip = document.createElement("div");
     strip.className = "arena-fountain-strip";
@@ -2634,6 +2866,7 @@
         <div class="side-panel-body" id="arena-log-body"></div>
       </div>
       <div class="arena-stack-wrap">
+        ${buildArenaReadyPanelHtml()}
         <svg viewBox="0 0 200 200" class="arena-fountain-svg" xmlns="http://www.w3.org/2000/svg">
           <circle cx="100" cy="100" r="98" fill="none" stroke="currentColor" stroke-width="2"/>
           <circle cx="100" cy="100" r="80" fill="none" stroke="currentColor" stroke-width="1.5"/>
@@ -2659,6 +2892,10 @@
         </div>
       </div>
     `;
+
+    strip.querySelectorAll(".arena-ready-toggle-btn").forEach(btn => {
+      btn.addEventListener("click", () => toggleReady(parseInt(btn.dataset.readySeatIdx, 10)));
+    });
 
     const stackZone = strip.querySelector(".arena-stack-zone");
     const emptyMsg = stackZone.querySelector(".stack-empty-msg");
@@ -2723,7 +2960,11 @@
 
   document.getElementById("btn-end-arena").addEventListener("click", () => {
     if (!confirm("Terug naar instellingen? De huidige wedstrijd (handen, decks, tellers) gaat hierbij verloren, tenzij je een nieuwe start met dezelfde instellingen.")) return;
+    // roomCode behouden: we blijven verbonden met dezelfde room, dus de
+    // nieuwe setup-stand hoort daar nog steeds bij (zie mpOpenSocket).
+    const prevRoomCode = (arena && arena.roomCode) || null;
     arena = freshSetupArena();
+    arena.roomCode = prevRoomCode;
     saveArena();
     renderArenaTab();
   });
@@ -2771,7 +3012,7 @@
       arena.stack.forEach(ci => { if (!ci.counters) ci.counters = freshCounters(); });
       if (!Array.isArray(arena.log)) arena.log = [];
       if (!Array.isArray(arena.chat)) arena.chat = [];
-      if (arena.turn !== 0 && arena.turn !== 1) arena.turn = 0;
+      if (arena.turn !== 0 && arena.turn !== 1 && arena.turn !== null) arena.turn = 0;
       ensureArenaSettings();
     } else if (arena.phase !== "setup") {
       arena = freshSetupArena();
@@ -2908,9 +3149,10 @@
   // seats bevatten van de vorige partij, wat vroeger foutief werd gelezen
   // als "deze room heeft al twee spelers". We beginnen hier dus altijd met
   // een schone lei en claimen p0.
-  function mpClaimSeatAndInit(){
+  function mpClaimSeatAndInit(room){
     if (soloMode) return;
     arena = freshSetupArena();
+    arena.roomCode = room;
     mySeat = "p0";
     pushMySeat();
   }
@@ -2926,11 +3168,31 @@
       mpConnected = true;
       mpUpdateButtons();
       mpSetStatus(`Verbonden — room "${room}". Wachten op tegenstander…`, "ok");
-      socket.send(JSON.stringify({ type: "join", room: room }));
+      // Eigen naam meesturen bij het joinen: zonder dit blijft de server-kant
+      // ws.name op de default "Speler" staan, en duikt deze arena-socket als
+      // een naamloze, verwarrende extra "Speler"-deelnemer op in de Council-
+      // vergadertafel (presence-info) — die kijkt over ALLE sockets/rooms
+      // heen, ook deze losse arena-verbinding.
+      socket.send(JSON.stringify({ type: "join", room: room, name: driveUsernameCache || "Speler" }));
+
+      // Hoort de lokaal gecachete `arena` (autosave, mogelijk van een
+      // eerdere/andere room of sessie) niet bij DEZE room, dan is hij hier
+      // irrelevant en zelfs schadelijk om te hergebruiken: hij zou dan als
+      // "er loopt al een match" behandeld worden en zijn (oude) inhoud naar
+      // de nieuwe room uitgezonden worden — vandaar het gemelde "oud
+      // testspel"/overgeslagen deck-keuze bij een nieuwe duel-room, en het
+      // feit dat mySeat daardoor nooit toegekend raakte (zie ook
+      // pushMySeat/mpClaimSeatAndInit hierboven). Bestaande autosaves van
+      // vóór dit veld bestond hebben geen roomCode (undefined) en worden
+      // hier dus ook gereset — gewenst, want daarvan is niet meer te weten
+      // bij welke room ze hoorden.
+      if (arena && arena.roomCode !== room){
+        arena = freshSetupArena();
+      }
 
       if (arena && arena.phase === "board"){
-        // Een match loopt al (bv. herverbinden na een korte hik): meteen
-        // onze huidige stand aanbieden, net als voorheen.
+        // Een match loopt al vóór DEZE room (bv. herverbinden na een korte
+        // hik): meteen onze huidige stand aanbieden, net als voorheen.
         socket.send(JSON.stringify({ type: "arena-state", arena: arena }));
       } else if (!soloMode) {
         // Nog geen bekende stand: wacht kort op wat de server ons stuurt
@@ -2941,7 +3203,7 @@
         mpInitialStateTimer = setTimeout(() => {
           if (mpAwaitingInitialState){
             mpAwaitingInitialState = false;
-            mpClaimSeatAndInit();
+            mpClaimSeatAndInit(room);
             renderArenaSetup();
           }
         }, 700);
@@ -3023,6 +3285,21 @@
       roomInput.value = mpRandomRoomCode();
     });
   })();
+
+  // Duel-uitdaging vanuit de Council: shell stuurt dit door zodra een
+  // uitdaging verstuurd of aanvaard werd (zie "wizards:duel-start" in
+  // index.html/council.html). Vult server-adres + roomcode in en verbindt
+  // meteen — gebruikt dezelfde ccServerUrl als de council-sessie, zodat
+  // beide spelers gegarandeerd op dezelfde relay-server terechtkomen.
+  window.addEventListener("message", (e) => {
+    if (!e.data || e.data.type !== "wizards:duel-start") return;
+    const urlInput = document.getElementById("mp-server-url");
+    const roomInput = document.getElementById("mp-room-code");
+    if (!urlInput || !roomInput || !e.data.roomCode) return;
+    if (e.data.serverUrl) urlInput.value = e.data.serverUrl;
+    roomInput.value = e.data.roomCode;
+    mpConnect();
+  });
 
   // ---------- Login / Drive-sync (gedeelde module) ----------
   let driveUsernameCache = "";

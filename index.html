@@ -438,6 +438,22 @@
           });
           return;
         }
+
+        if (e.data.type === "wizards:duel-start"){
+          // Een duel-uitdaging in de Council (verstuurd of aanvaard) moet de
+          // speler automatisch naar de Arena-tab brengen, verbonden op een
+          // gedeelde roomcode met de tegenstander. Zelfde "laad-dan-stuur"-
+          // patroon als sendToBuilder() hierboven, want de Arena-tab is
+          // mogelijk nog nooit geopend (iframe zonder src) op dit moment.
+          const arenaBtn = document.querySelector('.tab-btn[data-tab="arena"]');
+          if (arenaBtn) arenaBtn.click();
+          const frame = document.getElementById("frame-arena");
+          if (!frame) return;
+          const send = () => frame.contentWindow.postMessage(e.data, "*");
+          if (frame.dataset.loaded === "1") send();
+          else frame.addEventListener("load", () => { frame.dataset.loaded = "1"; send(); }, { once: true });
+          return;
+        }
       });
     }
   });

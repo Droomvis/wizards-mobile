@@ -115,6 +115,56 @@
   #cc-main{ flex:1; min-width:0; display:flex; flex-direction:column; padding:24px; overflow-y:auto; }
   #cc-placeholder{ display:flex; flex-direction:column; gap:20px; max-width:520px; }
 
+  /* ---------- Vergadertafel: overzicht van iedereen die online is, ook
+     buiten een zaal (spec: legacy-tafel terug, geen zaal-koppeling, enkel
+     hoed-sprite + naam bij hover). Statisch SVG (tafel + 8 stoelen, uit de
+     legacy-council overgenomen), avatars als canvas-overlay op %-posities
+     die met de vaste stoelcoordinaten overeenkomen. ---------- */
+  #cc-table-wrap{
+    position:relative; width:100%; max-width:480px; aspect-ratio: 1700 / 1100;
+    filter: drop-shadow(0 14px 20px rgba(0,0,0,0.5));
+  }
+  #cc-meeting-table{ position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  .cc-seat{
+    position:absolute; transform: translate(-50%, -50%);
+    width:15%; aspect-ratio:1/1; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    cursor:default;
+  }
+  .cc-seat.cc-seat-you{ box-shadow: 0 0 0 2px var(--gold); border-radius:50%; }
+  .cc-seat-canvas{ width:100%; height:100%; border-radius:50%; }
+  #cc-table-empty{
+    display:none; font-size:12px; color: var(--ink-dim); font-style:italic; margin:6px 0 0;
+  }
+
+  /* ---------- Duel-uitdaging: rechtsklik-menu + inkomende-banner ---------- */
+  #cc-context-menu{
+    position:fixed; z-index:60; background: var(--panel); border:1px solid var(--border);
+    border-radius:7px; padding:4px; box-shadow:0 10px 24px rgba(0,0,0,0.45);
+  }
+  .cc-context-item{
+    display:block; width:100%; text-align:left; white-space:nowrap; font-size:13px;
+    color: var(--ink-light); background:none; border:none; padding:8px 12px; border-radius:5px; cursor:pointer;
+    font-family: var(--font-ui);
+  }
+  .cc-context-item:hover{ background:#2a2338; }
+  #cc-challenge-banner{
+    position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:70;
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap; max-width:90vw;
+    background: linear-gradient(180deg,#2f2743,#251f38); border:1px solid var(--gold);
+    border-radius:10px; padding:12px 16px; box-shadow:0 12px 28px rgba(0,0,0,0.5);
+    font-size:13.5px; color: var(--gold-soft);
+  }
+  .cc-challenge-banner-actions{ display:flex; gap:8px; }
+  #cc-challenge-status{
+    position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:69;
+    background: var(--panel); border:1px solid var(--border-soft); border-radius:8px;
+    padding:8px 14px; font-size:12.5px; color: var(--ink-muted);
+  }
+  #cc-challenge-status.ok{ color:#7fbf7f; border-color:#3d5c3d; }
+  #cc-challenge-status.err{ color:#e08a8a; border-color:#5c3d3d; }
+  #cc-challenge-status.busy{ color: var(--gold-soft); border-color: var(--border); }
+
   /* ---------- Raaf-aankondiging ---------- */
   #cc-raven-widget{ position:relative; }
   #cc-raven-btn{
@@ -267,6 +317,15 @@
   <span id="drive-status"></span>
 </div>
 
+<div id="cc-challenge-banner" style="display:none;">
+  <span id="cc-challenge-banner-text"></span>
+  <div class="cc-challenge-banner-actions">
+    <button type="button" class="btn primary" id="cc-challenge-accept">Aanvaarden</button>
+    <button type="button" class="btn btn-subtle" id="cc-challenge-decline">Weigeren</button>
+  </div>
+</div>
+<div id="cc-challenge-status" style="display:none;"></div>
+
 <div id="view-council">
   <aside id="cc-sidebar">
     <div id="cc-sidebar-header">
@@ -312,6 +371,45 @@
 
   <div id="cc-main">
     <div id="cc-placeholder">
+      <div id="cc-table-section">
+        <h3>Wie is er online?</h3>
+        <div id="cc-table-wrap">
+          <svg id="cc-meeting-table" viewBox="0 0 1700 1100" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <radialGradient id="cc-tableWood" cx="35%" cy="30%" r="75%">
+                <stop offset="0%" stop-color="#8a5a34"/>
+                <stop offset="55%" stop-color="#6b4423"/>
+                <stop offset="100%" stop-color="#482c17"/>
+              </radialGradient>
+              <linearGradient id="cc-chairWood" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#5c3a20"/>
+                <stop offset="100%" stop-color="#3a2411"/>
+              </linearGradient>
+              <g id="cc-chairShape">
+                <rect x="-32" y="-26" width="46" height="52" rx="10" fill="url(#cc-chairWood)" stroke="#20130a" stroke-width="2"/>
+                <rect x="10" y="-30" width="15" height="60" rx="6" fill="#4a2e17" stroke="#20130a" stroke-width="2"/>
+                <rect x="-25" y="-19" width="28" height="38" rx="7" fill="#7a5330" opacity="0.55"/>
+              </g>
+            </defs>
+            <ellipse cx="850" cy="550" rx="278" ry="182" fill="#000" opacity="0.28"/>
+            <use href="#cc-chairShape" transform="translate(1228,550) rotate(0)"/>
+            <use href="#cc-chairShape" transform="translate(1117.3,750.1) rotate(45)"/>
+            <use href="#cc-chairShape" transform="translate(850,833) rotate(90)"/>
+            <use href="#cc-chairShape" transform="translate(582.7,750.1) rotate(135)"/>
+            <use href="#cc-chairShape" transform="translate(472,550) rotate(180)"/>
+            <use href="#cc-chairShape" transform="translate(582.7,349.9) rotate(225)"/>
+            <use href="#cc-chairShape" transform="translate(850,267) rotate(270)"/>
+            <use href="#cc-chairShape" transform="translate(1117.3,349.9) rotate(315)"/>
+            <ellipse cx="850" cy="550" rx="270" ry="175" fill="url(#cc-tableWood)" stroke="#2e1c0d" stroke-width="7"/>
+            <ellipse cx="850" cy="550" rx="215" ry="139" fill="none" stroke="#000000" stroke-opacity="0.14" stroke-width="2"/>
+            <ellipse cx="850" cy="550" rx="150" ry="97" fill="none" stroke="#000000" stroke-opacity="0.12" stroke-width="2"/>
+            <ellipse cx="850" cy="550" rx="85" ry="55" fill="none" stroke="#000000" stroke-opacity="0.10" stroke-width="2"/>
+          </svg>
+          <div id="cc-table-seats"></div>
+        </div>
+        <p id="cc-table-empty">Nog niemand anders online.</p>
+      </div>
+
       <div id="cc-raven-widget">
         <button type="button" id="cc-raven-btn" title="Aankondigingen">
           <span id="cc-raven-icon">🐦‍⬛</span>
@@ -478,6 +576,24 @@
   let ccServerUrl = CC_DEFAULT_SERVER_URL;
   let myPeerId = null;
   let myName = "Speler";
+  // Vergadertafel: volledige online-lijst van de server (presence-info),
+  // ongeacht zaal. Vaste stoelposities (% van #cc-table-wrap), overeenkomstig
+  // de 8 <use>-transforms in de SVG (viewBox 1700x1100).
+  let presencePeers = [];
+  const CC_SEAT_POSITIONS = [
+    { left: 72.24, top: 50.00 },
+    { left: 65.72, top: 68.19 },
+    { left: 50.00, top: 75.73 },
+    { left: 34.28, top: 68.19 },
+    { left: 27.76, top: 50.00 },
+    { left: 34.28, top: 31.81 },
+    { left: 50.00, top: 24.27 },
+    { left: 65.72, top: 31.81 }
+  ];
+  // Duel-uitdaging: op elk moment hoogstens één lopende uitdaging per
+  // richting (simpel gehouden, cfr. "niet superfancy").
+  let outgoingChallenge = null; // { peerId, name, timeoutId }
+  let incomingChallenge = null; // { peerId, name }
   let currentRoom = null;      // roomcode waar we nu effectief in zitten, of null (enkel lobby)
   let roomsInfo = {};          // roomcode -> [{peerId, name}, ...] — bezetting van ALLE zalen
   let localStream = null;
@@ -1033,6 +1149,148 @@
     catch (e) { /* canvas-fout mag de rest van de UI niet blokkeren */ }
   }
 
+  // ---------- Vergadertafel ----------
+  // Plaatsing: gesorteerd op peerId (stabiel zolang de groep online-spelers
+  // niet verandert) en simpelweg de eerste 8 op een stoel gezet. Bewuste
+  // eenvoud (cfr. "niet superfancy"): bij een 9e gelijktijdige speler krijgt
+  // niemand een aparte melding, die valt gewoon van de lijst af.
+  function renderMeetingTable(){
+    const seatsWrap = document.getElementById("cc-table-seats");
+    if (!seatsWrap) return;
+    seatsWrap.innerHTML = "";
+    const seated = [...presencePeers]
+      .sort((a, b) => String(a.peerId).localeCompare(String(b.peerId)))
+      .slice(0, CC_SEAT_POSITIONS.length);
+    seated.forEach((peer, i) => {
+      const pos = CC_SEAT_POSITIONS[i];
+      const isMe = peer.peerId === myPeerId;
+      const seat = document.createElement("div");
+      seat.className = "cc-seat" + (isMe ? " cc-seat-you" : "");
+      seat.style.left = pos.left + "%";
+      seat.style.top = pos.top + "%";
+      const peerName = peer.name || ("Speler " + String(peer.peerId).slice(0, 5));
+      seat.title = peerName + (isMe ? " (jij)" : "") + (peer.room ? " \u2014 in een zaal" : "");
+      seat.innerHTML = '<canvas class="cc-seat-canvas" width="52" height="52"></canvas>';
+      if (!isMe){
+        seat.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          showChallengeMenu(e.pageX, e.pageY, peer.peerId, peerName);
+        });
+      }
+      seatsWrap.appendChild(seat);
+      drawPeerAvatar(seat.querySelector(".cc-seat-canvas"), peerName);
+    });
+    const others = seated.filter(p => p.peerId !== myPeerId);
+    document.getElementById("cc-table-empty").style.display = others.length === 0 ? "block" : "none";
+  }
+
+  // ---------- Duel-uitdaging: rechtsklik-menu ----------
+  function closeChallengeMenu(){
+    const menu = document.getElementById("cc-context-menu");
+    if (menu) menu.remove();
+  }
+
+  function showChallengeMenu(x, y, peerId, name){
+    closeChallengeMenu();
+    const menu = document.createElement("div");
+    menu.id = "cc-context-menu";
+    menu.style.left = x + "px";
+    menu.style.top = y + "px";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "cc-context-item";
+    btn.textContent = `\u2694\uFE0F ${name} uitdagen voor een duel`;
+    btn.addEventListener("click", () => {
+      closeChallengeMenu();
+      sendChallengeInvite(peerId, name);
+    });
+    menu.appendChild(btn);
+    document.body.appendChild(menu);
+    // Op de eerstvolgende klik ergens anders het menu weer sluiten — met
+    // een tick vertraging, anders sluit dezelfde rechtsklik het meteen weer.
+    setTimeout(() => document.addEventListener("click", closeChallengeMenu, { once: true }), 0);
+  }
+
+  function ccSetChallengeStatus(text, kind){
+    const el = document.getElementById("cc-challenge-status");
+    if (!el) return;
+    if (!text){ el.style.display = "none"; return; }
+    el.textContent = text;
+    el.className = kind || "";
+    el.style.display = "block";
+    clearTimeout(el._hideTimer);
+    el._hideTimer = setTimeout(() => { el.style.display = "none"; }, 6000);
+  }
+
+  function sendChallengeInvite(peerId, name){
+    if (outgoingChallenge){
+      ccSetChallengeStatus(`Wacht nog op antwoord van ${outgoingChallenge.name}\u2026`, "err");
+      return;
+    }
+    ccSend({ type: "challenge-invite", to: peerId });
+    outgoingChallenge = {
+      peerId, name,
+      timeoutId: setTimeout(() => {
+        if (outgoingChallenge && outgoingChallenge.peerId === peerId){
+          ccSetChallengeStatus(`${name} reageerde niet op de uitdaging.`, "err");
+          outgoingChallenge = null;
+        }
+      }, 30000)
+    };
+    ccSetChallengeStatus(`Uitdaging verstuurd naar ${name}\u2026`, "busy");
+  }
+
+  // ---------- Duel-uitdaging: inkomende banner ----------
+  function showIncomingChallengeBanner(){
+    const banner = document.getElementById("cc-challenge-banner");
+    const textEl = document.getElementById("cc-challenge-banner-text");
+    if (!banner || !incomingChallenge) return;
+    textEl.textContent = `\u2694\uFE0F ${incomingChallenge.name} daagt je uit voor een duel!`;
+    banner.style.display = "flex";
+  }
+
+  function hideIncomingChallengeBanner(){
+    const banner = document.getElementById("cc-challenge-banner");
+    if (banner) banner.style.display = "none";
+  }
+
+  function ccRandomDuelRoomCode(){
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let code = "DUEL-";
+    for (let i = 0; i < 5; i++) code += chars[Math.floor(Math.random() * chars.length)];
+    return code;
+  }
+
+  function acceptIncomingChallenge(){
+    if (!incomingChallenge) return;
+    const code = ccRandomDuelRoomCode();
+    ccSend({ type: "challenge-response", to: incomingChallenge.peerId, accepted: true, arenaRoom: code });
+    hideIncomingChallengeBanner();
+    startDuel(code);
+    incomingChallenge = null;
+  }
+
+  function declineIncomingChallenge(){
+    if (!incomingChallenge) return;
+    ccSend({ type: "challenge-response", to: incomingChallenge.peerId, accepted: false });
+    hideIncomingChallengeBanner();
+    incomingChallenge = null;
+  }
+
+  // Schakelt (via de shell) automatisch naar de Arena-tab en verbindt daar
+  // met dezelfde relay-server als deze council-sessie, op een gedeelde
+  // roomcode — zowel bij het versturen als het aanvaarden van een duel.
+  // Enkel mogelijk binnen de shell (index.html verzorgt de postMessage-
+  // doorgeefluik naar de Arena-iframe, zie daar); rechtstreeks geopend
+  // (window.self === window.top) kan enkel de roomcode getoond worden.
+  function startDuel(roomCode){
+    if (window.self !== window.top){
+      window.parent.postMessage({ type: "wizards:duel-start", serverUrl: ccServerUrl, roomCode: roomCode }, "*");
+    } else {
+      ccSetChallengeStatus(`Roomcode voor de Arena: ${roomCode} (open Wizards via de shell om automatisch te verbinden).`, "ok");
+    }
+  }
+
   function renderPeers(){
     const wrap = document.getElementById("cr-peers");
     const emptyHint = document.getElementById("cr-empty-hint");
@@ -1098,6 +1356,9 @@
     socket.addEventListener("open", () => {
       lobbyConnected = true;
       ccSetLobbyStatus("Verbonden — kies een zaal.", "ok");
+      // Meteen presence registreren, ongeacht of we al dan niet een zaal
+      // joinen — dit is wat de speler een stoel geeft aan de vergadertafel.
+      ccSend({ type: "presence", name: myName });
       if (currentRoom){
         // Was al in een zaal vóór een verbindingsonderbreking: eerst alle
         // bestaande RTCPeerConnections opruimen. Zonder dit blijven oude/
@@ -1119,6 +1380,35 @@
       if (msg.type === "rooms-info"){
         roomsInfo = msg.rooms || {};
         renderSidebar();
+        return;
+      }
+      if (msg.type === "welcome"){
+        myPeerId = msg.peerId;
+        return;
+      }
+      if (msg.type === "presence-info"){
+        presencePeers = msg.peers || [];
+        renderMeetingTable();
+        return;
+      }
+      if (msg.type === "challenge-invite"){
+        // Simpel gehouden: een nieuwe inkomende uitdaging vervangt gewoon een
+        // eventuele vorige die nog niet beantwoord was.
+        incomingChallenge = { peerId: msg.from, name: msg.fromName || "Iemand" };
+        showIncomingChallengeBanner();
+        return;
+      }
+      if (msg.type === "challenge-response"){
+        if (outgoingChallenge && outgoingChallenge.peerId === msg.from){
+          clearTimeout(outgoingChallenge.timeoutId);
+          if (msg.accepted){
+            ccSetChallengeStatus(`${outgoingChallenge.name} aanvaardt de uitdaging \u2014 naar de Arena\u2026`, "ok");
+            startDuel(msg.arenaRoom);
+          } else {
+            ccSetChallengeStatus(`${outgoingChallenge.name} heeft de uitdaging geweigerd.`, "err");
+          }
+          outgoingChallenge = null;
+        }
         return;
       }
       if (msg.type === "joined"){
@@ -1171,6 +1461,17 @@
         // Zelfde principe als forum-sync, voor de raaf-aankondiging.
         driveData = Object.assign({}, driveData || {}, { ravenNotice: msg.ravenNotice });
         renderRavenWidget();
+        return;
+      }
+      if (msg.type === "hat-sync" && msg.username && msg.config && window.HatAvatar){
+        // Live hoedwijziging van een andere speler (of een "heb ik iets
+        // gemist"-duwtje meteen na het verbinden) — lokale hoed-cache
+        // bijwerken en alles wat een hoed toont opnieuw tekenen. Zonder dit
+        // zag je een gewijzigde hoed van iemand anders pas na je eigen
+        // volgende volledige Drive-sync/herlogin.
+        HatAvatar.setHatInCache(msg.username, msg.config);
+        renderPeers();
+        renderMeetingTable();
         return;
       }
       if (msg.type === "webrtc-offer"){
@@ -1273,6 +1574,9 @@
     });
     document.getElementById("cr-btn-leave").addEventListener("click", ccLeaveRoom);
 
+    document.getElementById("cc-challenge-accept").addEventListener("click", acceptIncomingChallenge);
+    document.getElementById("cc-challenge-decline").addEventListener("click", declineIncomingChallenge);
+
     const crChatInput = document.getElementById("cr-chat-input");
     const crChatSend = document.getElementById("cr-chat-send");
     function doSendRoomChat(){
@@ -1318,13 +1622,19 @@
   // Andere modules/tabs kunnen na een hoedwijziging een
   // "wizards:hat-updated"-boodschap sturen (zie hat-avatar.js) — de
   // drive-bar-bubbel zelf update dan al via shared/drive-auth.js, maar hier
-  // wordt bovendien de council-peerkaart (die zijn eigen canvas tekent)
-  // herrenderd, zowel voor jezelf als voor een eventuele andere speler in
-  // dezelfde zaal die net zijn hoed aanpaste.
+  // wordt bovendien de council-peerkaart EN de vergadertafel (die elk hun
+  // eigen canvas tekenen) herrenderd. Dit is enkel een postMessage BINNEN
+  // dezelfde browser/shell (tussen iframes/tabs van jezelf) — daarom sturen
+  // we de wijziging hier ook via de websocket door als "hat-sync" (zelfde
+  // principe als forum-sync/raven-sync), zodat ANDERE spelers ze ook live
+  // zien, in plaats van pas na hun eigen volgende volledige Drive-sync/
+  // herlogin.
   window.addEventListener("message", function(e){
     if (!e.data || e.data.type !== "wizards:hat-updated" || !window.HatAvatar) return;
     HatAvatar.setHatInCache(e.data.username, e.data.config);
     renderPeers();
+    renderMeetingTable();
+    if (e.data.username) ccSend({ type: "hat-sync", username: e.data.username, config: e.data.config });
   });
 
   DriveAuth.initLoginOverlay({

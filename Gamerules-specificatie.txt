@@ -1,0 +1,472 @@
+Gamerules-module (keyword/type-effecten) — specificatie & stappenplan
+=======================================================================
+Status: DEFINITIE-LAAG GEBOUWD (stap 1 t.e.m. 5 afgerond, zie stappenplan
+onderaan). shared/game-rules.js bestaat en is ingeladen in arena.html en
+cardbuilder.html. Nog GEEN interpreter (bewust, cfr. vraag 4) — niets
+hieruit voert nog iets automatisch uit in de test-arena.
+
+Context (cfr. gesprek + Architectuur.txt):
+- card-data.js heeft al TRIGGER_LIST/ACTION_LIST/TARGET_LIST + normalizeEffect(),
+  gebruikt in card.effects[] — dat is per-kaart, kaart-specifiek.
+- arena.html gebruikt `effects` nergens (nog geen interpreter). De bestaande
+  automatisaties (Rest, spendAction, cast-kost, END TURN hand-keep) zijn
+  generiek op speler/kaarttype-niveau, niet keyword-specifiek — botsen dus
+  niet met wat hier komt.
+- Sinds de Slumber-uitbreiding (zie card-data.js/arena.html) zet exhausten
+  al automatisch een witte Time Counter; spendAction telt enkel getapte
+  kaarten af en readiet bij 0. Elke keyword-regel die ook aan
+  exhausten/tellers raakt, moet hiermee rekening houden.
+
+
+1. DOEL & SCOPE
+---------------
+Doel: één centrale plek waar vastligt wat een TYPE of SUBTYPE (keyword)
+automatisch impliceert, los van wat een individuele kaart in zijn eigen
+`effects[]` extra doet.
+
+Voorstel modulenaam: shared/game-rules.js (te laden na card-data.js, want
+gebruikt TRIGGER_LIST/ACTION_LIST/TARGET_LIST/normalizeEffect/SUBTYPE_LIST_BY_TYPE).
+
+Voorlopige vorm — BIJGEWERKT na beantwoording van alle open vragen (sectie 2/2b):
+Minion is GEEN passieve trigger (die zou ook afgaan als de tegenstander de
+kaart exhaust) maar een ACTIVATED ABILITY (`kind: "activated"`): geen
+`trigger`, wel een `cost` (exhaustSelf) — enkel uitgevoerd als de eigenaar
+er zelf voor kiest te betalen. De schade-waarde EN het schadetype van deze
+specifieke, Minion-geërfde "Attack"-ability zijn zone-afhankelijk — dit is
+bewust GEEN generiek `value`-mechanisme (zie vraag 8), enkel een markering
+op deze ene ability:
+
+  const SUBTYPE_EFFECTS = {
+    Minion: [ normalizeEffect({ kind:"activated", isAttack:true, trigger:"", action:"Damage",
+                                 target:"opponentActiveWizard" /* TODO: zie vraag 9/2c — target-afhandeling voor Manifestation/Destiny-targets is intussen wel al inhoudelijk vastgelegd, zie 2c */,
+                                 cost:{ exhaustSelf:true } }) ]
+  };
+  const TYPE_EFFECTS = {};
+
+  function getEffectiveEffects(card){
+    const fromType = TYPE_EFFECTS[card.type] || [];
+    const fromSubtypes = (card.subtypes || []).flatMap(s => SUBTYPE_EFFECTS[s] || []);
+    return [...fromType, ...fromSubtypes, ...(card.effects || [])];
+  }
+
+Ter vergelijking: een kaart-specifieke activated ability zoals "Mosquito"
+(1/0/0, eigen ability "1 Mind damage") staat gewoon in `card.effects[]` met
+`kind:"activated"`, een vaste `value:1` en een vast schadetype via `target`
+(bv. een Mind-specifieke target) — geen `isAttack`, want dat is enkel voor
+de Minion-Attack-ability (zie 2c hieronder voor de precieze naamgeving en
+de "activated ⊃ attack"-categorisering).
+
+Let op: `getEffectiveEffects()` mag TRIGGER-effecten (`kind:"trigger"`)
+altijd zomaar samenvoegen — die stapelen automatisch (antwoord 1).
+ACTIVATED effecten (`kind:"activated"`) mag deze functie ook gewoon
+teruggeven als kandidaten, maar een toekomstige interpreter/UI moet de
+speler laten KIEZEN welke van de beschikbare activated abilities hij met
+een gegeven cost-betaling activeert — nooit automatisch allemaal tegelijk
+uitvoeren.
+
+Dit stappenplan gaat NIET over het bouwen van de trigger-interpreter zelf
+(de code die op het juiste moment door getEffectiveEffects() loopt en
+ACTION_LIST-items uitvoert in arena.html) — dat is een apart, groter
+traject. Zie open vraag 4 voor de vraag of dat traject nu al meegenomen
+wordt of pas na deze specificatie.
+
+
+2. OPEN VRAGEN
+---------------
+1) Precedentie tussen lagen — kan een kaart-specifiek effect een
+   keyword-effect (subtype/type) onderdrukken/vervangen, of stapelen ze
+   altijd gewoon op?
+   -> ANTWOORD: hangt af van het type effect. TRIGGERS (automatisch, geen
+      cost) stapelen altijd gewoon op — geen onderdrukking. COSTS (bv.
+      exhausten als betaling) vergen een keuze van de speler: die kiest
+      WAARVOOR hij betaalt, dus meerdere cost-effecten met dezelfde
+      cost-bron concurreren om diezelfde betaling i.p.v. allemaal samen af
+      te gaan.
+
+2) Waarde-referenties — moet `value` in een effect kunnen verwijzen naar
+   een stat van de kaart zelf (bv. "body" i.p.v. een vast getal)?
+   -> ANTWOORD: ja, en het ligt genuanceerder dan één vaste stat: zie punt 3
+      hieronder (zone-afhankelijk, niet gewoon één vaste stat per kaart).
+
+3) Generiek exhausten vs. aparte "Attack"-actie — gaat een keyword-effect
+   af bij ELK exhausten (ongeacht reden), of enkel via bewuste activatie
+   door de eigenaar?
+   -> ANTWOORD: Minion is een ACTIVATED ABILITY (cost = exhaustSelf), geen
+      passieve OnExhausted-trigger. Wordt de Minion door de tegenstander
+      geëxhaust (bv. via een verwijderingseffect), dan betaalt de eigenaar
+      niets en gaat de ability dus NIET af — enkel bewust zelf exhausten
+      ("aanvallen") activeert het.
+      Bijkomend, nieuw vastgelegd: de schade EN het schadetype van een
+      Minion zijn zone-afhankelijk. Een Minion met Body 1 / Mind 3 / Soul 2
+      doet 1 Body-, 3 Mind- of 2 Soul-damage, telkens overeenkomstig de
+      zone (inPlayBody/inPlayMind/inPlaySoul) waar de kaart op dat moment
+      ligt — niet een vaste stat, maar "de stat die bij de huidige zone
+      hoort".
+
+4) Scope van deze eerste ronde — enkel de definitie-laag, of ook een
+   interpreter voor minstens 1 trigger?
+   -> ANTWOORD: enkel de definitie-laag (SUBTYPE_EFFECTS/TYPE_EFFECTS +
+      getEffectiveEffects). Geen interpreter, geen wijziging aan arena.html
+      in dit traject.
+
+5) Meerdere subtypes op één kaart — effecten van alle subtypes gewoon
+   samenvoegen, of kan dat conflicteren?
+   -> ANTWOORD: ze tellen altijd gewoon samen op (zelfde stapel-principe
+      als bij vraag 1 voor triggers).
+
+6) Naamgeving — game-rules.js / SUBTYPE_EFFECTS / TYPE_EFFECTS akkoord?
+   -> ANTWOORD: akkoord, geen wijziging.
+
+
+2b. NIEUWE OPEN VRAGEN (voortvloeiend uit de antwoorden hierboven) — BEANTWOORD
+---------------------------------------------------------------------------
+7) Activated vs. trigger onderscheiden in het datamodel.
+   -> ANTWOORD: expliciet apart veld, geen impliciete conventie. Elk effect
+      krijgt een `kind: "trigger" | "activated"`. Datamodel-impact (voor
+      stap 2): normalizeEffect() in card-data.js moet dit veld valideren/
+      normaliseren, net als trigger/action/target/value/cost nu al.
+
+8) Zone-afhankelijke waarde/schadetype.
+   -> ANTWOORD: dit is GEEN generiek, overal herbruikbaar `value`-mechanisme.
+      Het zone-gedrag hoort specifiek bij de één-en-enige "Attack"-ability
+      die een kaart via het Minion-subtype erft. Een kaart-specifieke
+      activated ability (bv. "Mosquito", 1/0/0, met een eigen ability die
+      altijd 1 Mind damage doet) gebruikt gewoon een vaste waarde en een
+      vast schadetype, ongeacht in welke zone hij ligt — zone-scaling is
+      dus geen algemene `value`-optie die elke effect-auteur kan kiezen.
+      Praktisch: de Minion-Attack-entry in SUBTYPE_EFFECTS krijgt een
+      eigen, herkenbare markering (`isAttack: true`, zie 2c voor de precieze
+      naamgeving) zodat een latere interpreter dit als één specifiek geval
+      kan herkennen, los van hoe gewone kaart-effecten hun `value` invullen.
+
+9) Schade-afhandeling op de tegenstander.
+   -> ANTWOORD: dit wordt op TARGET-niveau gedefinieerd, niet generiek —
+      schade gedraagt zich anders op een Wizard (vermoedelijk shields per
+      Body/Mind/Soul) dan op een Manifestation (nog geen vastgelegd
+      mechanisme: counters, directe vernietiging, iets anders?). Dat
+      laatste — hoe damage exact op een Manifestation-instantie inwerkt —
+      is nog niet uitgewerkt en is eigenlijk een aparte, voorafgaande vraag
+      over de TARGET_LIST/damage-afhandeling in het algemeen, los van
+      Minion specifiek. Genoteerd als afhankelijkheid in sectie 4 hieronder
+      — blokkeert dit document niet (scope blijft de definitie-laag), maar
+      blokkeert wel het volledig invullen van Minion's `target`/uitwerking
+      zodra er wel een interpreter komt.
+
+
+2c. VERVOLG OP VRAAG 8/9: Permanent-schade & dood (Manifestation/Destiny)
+---------------------------------------------------------------------------
+STATUS: GEÍMPLEMENTEERD in arena.html (naast Slumber de tweede fundamentele
+regel die los van de gamerules-module zelf gebouwd is — zie addCounterToInstance/
+isPermanentVulnerable/permanentStatusLabel). Nog geen enkele manier om
+effectief schade toe te dienen (geen Attack-interpreter, geen andere
+schadebron) — enkel de manuele zwarte teller in de zoom-view triggert dit,
+zoals gevraagd.
+
+Los van Minion/keywords specifiek, maar wel de ontbrekende schakel om
+vraag 9 verder in te vullen — dit is een FUNDAMENTELE regel (geldt voor elk
+in-play permanent, ongeacht subtype), geen SUBTYPE_EFFECTS-entry:
+
+- Elke Manifestation of Destiny die in het spel ligt, ligt altijd in exact
+  één van de drie zones (inPlayBody/inPlayMind/inPlaySoul) en kan ENKEL
+  schade van het overeenkomstige type krijgen. Hun eigen attacks doen ook
+  enkel schade van dat type — consistent met de zone-regel uit vraag 3.
+- Schade wordt bijgehouden op de kaart zelf: dit IS de al bestaande zwarte
+  teller (`counters.black`, nu al "Damage" genoemd in de zoom-UI van
+  arena.html) — geen nieuw datamodel nodig, enkel nieuw gedrag erbovenop.
+- Schade geneest niet vanzelf (geen automatische afbouw, in tegenstelling
+  tot de witte Slumber-teller die net wel afbouwt).
+- Zodra `counters.black >= <relevante stat>` (de Body/Mind/Soul-stat van de
+  kaart die overeenkomt met de zone waarin ze ligt) wordt de permanent
+  Vulnerable/Confused/Forlorn — LETTERLIJK dezelfde naamgeving als de al
+  bestaande `shieldStatusBadge()` voor Wizard-schilden in arena.html, nu
+  toegepast op een kaart-instantie i.p.v. een speler, en op de STAT i.p.v.
+  een SHIELD.
+  BELANGRIJK VERSCHIL met de Wizard-versie: bij een Wizard is dit vandaag
+  puur informatief (cfr. bestaande code-comment: "geen eigen state, geen
+  gevolgen"). Bij een permanent heeft het WEL een gevolg: eens in die
+  staat, doet ELKE volgende hoeveelheid schade (ongeacht hoeveel) de
+  permanent sterven — naar discard.
+
+Categorisering "Attack" vs. "activated ability" (aanvulling op vraag 8):
+activated abilities zijn niet per se attacks, maar een attack is altijd een
+activated ability ("activated ⊃ attack"). Enkel een effect dat expliciet
+als Attack gemarkeerd is (`isAttack: true`, zie sectie 1) volgt de
+zone-afhankelijke waarde/schade-type-regel uit vraag 8. Mosquito's eigen
+activated ability (vaste waarde, vast schadetype) is dus een gewone
+activated ability, GEEN Attack.
+
+Vraag 9 is hiermee inhoudelijk beantwoord voor het Manifestation/Destiny-
+geval. Wat nog wel open blijft (implementatiedetail, geen blokkerende
+vraag): HOE dit precies als target-waarde in de gamerules-module
+gecodeerd wordt (aparte targets per permanent-type, of één generieke
+"target de permanent-instantie" met deze regel universeel toegepast) —
+dat hoort bij de interpreter-bouw, dus buiten scope van deze ronde (vraag 4).
+
+
+2d. NIEUWE OPEN VRAGEN (n.a.v. Bookshelf/Book-voorbeeld) — BEANTWOORD
+---------------------------------------------------------------------------
+10) Protection/targeting-relaties tussen subtypes (bv. "Bookshelf beschermt
+    Books tegen targeting") — een derde effect-categorie (`kind:"protection"`)?
+    -> ANTWOORD: NEE. Dit is helemaal geen keyword-/subtype-implicatie. Het
+       is kaart-specifieke, CONTINUE ("passive"/static) logica op Bookshelf
+       zelf: "Your books and scrolls in this zone cannot be targeted by
+       opponents" staat gewoon als vrije game-tekst op Bookshelf, net zoals
+       vandaag. Dit hoort dus NIET in SUBTYPE_EFFECTS/TYPE_EFFECTS thuis —
+       die gaan over wat een keyword IMPLICEERT voor de drager ervan, niet
+       over wat een andere kaart over dat keyword beweert.
+
+11) Scope van zo'n bescherming (zelfde zone vereist, of gewoon "bij dezelfde
+    controller in het spel")?
+    -> ANTWOORD: kaart-specifiek, geen algemene regel — elke passive ability
+       kan zijn eigen scope in zijn eigen tekst vastleggen. Bevestigt
+       vraag 10: dit is geen systeem om te bouwen, het is gewoon tekst.
+
+12) Vrije/addable subtypes (n.a.v. antwoord op vraag 1 vorige ronde: "de
+    optie moet bestaan om subtypes toe te voegen, ze impliceren niet altijd
+    spelregels").
+    -> ANTWOORD: gewenst, met een "nieuw subtype"-knop (analoog aan hoe
+       punt 1 het stelde). Dit is een APARTE feature, los van de
+       gamerules-module: het raakt `SUBTYPE_LIST_BY_TYPE` (nu een vaste
+       array per type in card-data.js) en de cardbuilder-UI, niet
+       SUBTYPE_EFFECTS. Zie sectie 6 hieronder voor de vervolgstappen.
+
+BELANGRIJKE SCOPE-VERDUIDELIJKING die hieruit volgt: "passive"/continue
+abilities (static, geen trigger-moment, geen activatie-cost — gewoon altijd
+actief zolang de kaart in het spel ligt, cfr. Magic: the Gathering's static
+abilities) zijn EXPLICIET BUITEN SCOPE van deze hele gamerules-module, ook
+al zou een subtype ooit wel zoiets willen impliceren (bv. "elke Minion is
+automatisch immuun voor iets"). Zo'n systeem (continuous effects/layers) is
+aanzienlijk groter dan trigger/activated en verdient een eigen, latere
+specificatie als het ooit nodig blijkt — nu blijft elke passive ability
+gewoon vrije tekst in `gameText`, ook op subtype-niveau.
+
+
+5. KEYWORD-WOORDENBOEK (stap 3 van het stappenplan)
+-----------------------------------------------------
+Wat elk bestaand type/subtype impliceert, in gewone taal, vóór het in
+SUBTYPE_EFFECTS/TYPE_EFFECTS gegoten wordt:
+
+- Manifestation — Minion: kan Attacken. Activated ability (`kind:
+  "activated"`, `isAttack:true`), cost = exhaustSelf, geen trigger. Schade
+  + schadetype = de stat/zone waarin de kaart ligt (zie sectie 1/2c).
+  VOLLEDIG UITGEWERKT, klaar voor stap 5.
+
+- Manifestation — Structure: GEEN automatisch effect. Bevestigd
+  design-keuze, geen placeholder: subtypes hoeven geen spelregel te
+  impliceren, soms zijn ze puur flavour/thematisch (cfr. antwoord op
+  vraag 1). `SUBTYPE_EFFECTS.Structure` blijft dus afwezig/leeg.
+
+- Burden — Manifestation (subtype van Burden): GEEN eigen automatisch
+  effect. Puur mechanisch/thematisch: dit subtype bestaat zodat zo'n Burden
+  (a) in een in-play zone kan liggen, en (b) getarget kan worden door
+  effecten die "een Manifestation" targetten. Punt (b) is een
+  interpreter-detail (de target-resolutie moet straks controleren op
+  `card.type === "Manifestation" OR card.subtypes.includes("Manifestation")`)
+  — geen SUBTYPE_EFFECTS-entry nodig, wel een aandachtspunt voor wanneer de
+  interpreter/TARGET-afhandeling gebouwd wordt.
+
+- Basis-types zonder subtype (Wizard, Incantation, Hex, Destiny, en
+  Manifestation/Burden zonder subtype): momenteel geen plannen voor een
+  automatisch effect. `TYPE_EFFECTS` blijft voor deze types afwezig/leeg.
+  De module-structuur ondersteunt dit vanzelf (gewoon geen key toevoegen) —
+  geen speciale "leeg"-notatie nodig.
+
+BELANGRIJK TECHNISCH AANDACHTSPUNT (nieuw, n.a.v. vraag 12 — vrije
+subtypes): `SUBTYPE_EFFECTS` is een PLATTE naamruimte over ALLE types heen
+(`fromSubtypes = card.subtypes.flatMap(s => SUBTYPE_EFFECTS[s] || [])` kijkt
+enkel naar de subtype-NAAM, niet naar "dit subtype hoort bij type X"). Een
+nieuw, vrij toegevoegd subtype moet dus een naam krijgen die nergens anders
+al gebruikt wordt (ook niet bij een ander hoofdtype), anders erft die kaart
+per ongeluk het effect van een gelijknamig subtype elders. De "nieuw
+subtype"-UI (zie sectie 6) moet dit controleren.
+
+
+6. VERVOLGTRAJECT (BUITEN DEZE SPECIFICATIE): vrije/addable subtypes
+------------------------------------------------------------------------
+STATUS: GEÏMPLEMENTEERD (2026-08-23). N.a.v. vraag 12: een "+ Nieuw
+subtype"-knop in de subtype-chip-rij van cardbuilder.html EN
+Wizards_Mobile.html (die laatste heeft een eigen kopie van dezelfde UI).
+
+Beslist (was hierboven nog open):
+- Bewaarplaats: Drive-gesynchroniseerd, exact zoals de kaarten-collectie
+  zelf — niet lokaal per browser. Nieuw top-level veld in
+  wizards-cards.json: `customSubtypes`, een platte array van
+  `{name, type, createdBy, createdAt}` (type = het hoofdtype waarvoor het
+  subtype is aangemaakt; de naamruimte voor de uniciteits-check blijft wel
+  plat over alle types heen, zie hieronder).
+- Uniciteits-check: meteen mee gebouwd, cfr. het technisch aandachtspunt
+  in sectie 5 hierboven (SUBTYPE_EFFECTS is een platte naamruimte over alle
+  types heen — een nieuwe naam mag dus nergens, ook niet bij een ander
+  type, al bestaan). Case-insensitief ('Beast' en 'beast' botsen).
+
+Datamodel (card-data.js):
+- `getAllowedSubtypes(type, customSubtypes)` — ingebouwde
+  SUBTYPE_LIST_BY_TYPE[type] aangevuld met de custom subtypes voor dat
+  type.
+- `isSubtypeNameTaken(name, customSubtypes)` — de uniciteits-check, over
+  zowel alle ingebouwde als alle custom namen, ongeacht type.
+- `normalizeCard()`'s subtypes-veld filtert niet langer hard tegen
+  SUBTYPE_LIST_BY_TYPE (dat zou elk custom subtype meteen terug wegfilteren,
+  want normalizeCard() kent de customSubtypes-lijst niet — die leeft in de
+  host-module, niet in card-data.js). Enkel nog opgeschoond: geen lege/
+  dubbele strings. De chip-UI is de facto al de gatekeeper van geldige
+  waarden.
+
+UI (cardbuilder.html + Wizards_Mobile.html, identiek in beide):
+- De subtype-rij (voorheen verborgen bij 0 ingebouwde subtypes, bv. voor
+  Wizard/Incantation/Hex/Destiny) is nu altijd zichtbaar, want elk
+  hoofdtype kan een custom subtype krijgen.
+- "+ Nieuw subtype"-chip aan het einde van de rij → klik toont een inline
+  naam-invoer (geen browser-prompt) met bevestigen/annuleren-knoppen en
+  Enter/Escape-toetsenbordondersteuning; foutmelding inline bij een reeds
+  bestaande naam.
+- Bij succes: meteen toegevoegd aan `customSubtypes` én aangevinkt op de
+  huidige kaart, autosave (net als elke andere kaartwijziging).
+
+Drive-sync: `customSubtypes` wordt precies zoals `collection` geladen/
+geschreven in elke driveLoad/driveMerge/driveWrite/login-callback, en
+toegevoegd aan de exclude-lijst van applyUnknownFields(). Merge-strategie
+in driveMerge (puur additief, geen edit-conflict mogelijk): unie op naam,
+case-insensitief, cloud-versie wint bij een exacte naam-botsing (zou in de
+praktijk niet mogen voorkomen dankzij de uniciteits-check bij het
+aanmaken).
+
+Getest (Node, buiten de browser, zelfde ongewijzigde logica uit
+card-data.js): getAllowedSubtypes voegt ingebouwd + custom correct samen
+per type; isSubtypeNameTaken herkent zowel ingebouwde als custom namen,
+case-insensitief, over alle types heen, en wijst een lege naam altijd af;
+normalizeCard() behoudt een custom subtype (i.p.v. het weg te filteren)
+en combineert/trimt/dedupliceert ingebouwde + custom subtypes correct.
+Alle checks geslaagd.
+
+
+2e. UNIFORME MINION-ATTACK & COST-GENERALISATIE (naar aanleiding van de
+eerste test van de gebouwde module) — GEÍMPLEMENTEERD
+---------------------------------------------------------------------------
+Twee opmerkingen n.a.v. het testen (stap 7) van de cardbuilder-UI voor
+effecten, allebei verwerkt in card-data.js/game-rules.js/cardbuilder.html:
+
+Punt 1 — Trigger-dropdown en te smalle cost bij activated abilities.
+De effects-editor toonde altijd een Trigger-dropdown (OnPlayed, OnEnterPlay,
+...), ook voor een activated ability — die vuurt nooit af op een
+spelgebeurtenis, enkel doordat de speler bewust een cost betaalt. Bovendien
+was de cost zelf te smal (enkel een vast `{spite, exhaustSelf}`-object).
+OPGELOST:
+  - card-data.js: `cost` (object) vervangen door `costs` (array van
+    componenten). Nieuwe `COST_TYPE_LIST`: ExhaustSelf, Spite, Action,
+    Discard, SelfVulnerable — combineerbaar (bv. exhaust + discard 1
+    kaart). `normalizeCostEntry()` valideert elke component. Migratie: een
+    ouder effect met het vorige `cost`-object wordt automatisch omgezet.
+  - normalizeEffect(): `trigger` wordt genegeerd (leeg) voor kind:
+    "activated"; `costs` wordt genegeerd (leeg) voor kind:"trigger".
+  - cardbuilder.html: de Trigger-dropdown wordt verborgen zodra "Soort" op
+    Activated ability staat, en omgekeerd wordt dan een cost-lijst-editor
+    getoond (toevoegen/verwijderen van cost-componenten, met een
+    waarde-veld enkel waar relevant — Spite/Action/Discard, niet bij
+    ExhaustSelf/SelfVulnerable).
+  - COST_TYPE_LIST is, net als SUBTYPE_LIST_BY_TYPE, een vaste opsomming
+    voor nu — geen vrij-toevoegen-UI zoals bij subtypes (sectie 6). Nieuwe
+    kost-types toevoegen vergt vandaag nog een code-wijziging.
+
+Punt 2 — De Minion-Attack was geen uniforme, kant-en-klare ability.
+De vorige opzet (per-kaart een "isAttack"-checkbox + zelf action/target
+invullen) klopte niet: ALLE Minions moeten precies dezelfde Attack-ability
+hebben, ontleend aan het keyword zelf, niet per kaart samengesteld. Exacte,
+vastgelegde definitie:
+  "Cost: exhaust this card. Target: a zone controlled by an opponent.
+  Effect: deal damage equal to this Minion's Body stat if it is in your
+  Body zone, equal to its Mind stat if it is in your Mind zone, or equal to
+  its Soul stat if it is in your Soul zone."
+Belangrijke precisering t.o.v. de vorige versie van dit document:
+  - Target is "opponentZone" (nieuw in TARGET_LIST), NIET
+    "opponentActiveWizard". Het doel is een ZONE, niet de Wizard of een
+    specifieke kaart rechtstreeks.
+  - De VERDEDIGER kiest zelf hoe de schade opgevangen wordt: op het schild
+    van dat type, door een Manifestation/Destiny in die zone te
+    sacrificen, of door rechtstreeks kaarten te banishen uit deck/hand/
+    discard — afhankelijk van het schadetype. Dit is dus een EIGEN
+    resolutiemechanisme ("zone-attack met defender's choice"), verschillend
+    van de generieke Manifestation/Destiny-schaderegel uit sectie 2c (die
+    geldt wanneer iets schade toedient aan een SPECIFIEKE kaart-instantie,
+    bv. via een spreuk die "target Manifestation" zegt — geen zone-attack).
+    Nog NIET uitgewerkt (implementatiedetail voor de interpreter, buiten
+    scope van deze ronde): de exacte spelerskeuze-UI voor de verdediger.
+  - `SUBTYPE_EFFECTS.Minion` in game-rules.js is bijgewerkt naar deze
+    exacte definitie (target:"opponentZone", costs:[{type:"ExhaustSelf"}]).
+
+Flying (TOEKOMSTIG, expliciet NIET gebouwd): een Minion met het keyword
+Flying zou zijn Attack ALTERNATIEF mogen targetten — niet enkel "een zone"
+(met defender's choice), maar ook rechtstreeks een specifieke Manifestation
+of Destiny in een zone (bypass van de defender's choice). Genoteerd als
+aparte, latere uitbreiding — geen onderdeel van deze module vandaag.
+
+Activated ⊃ attack (herhaling, nu met de juiste voorbeelden): Mosquito
+(1/0/0, eigen activated ability "1 Mind damage", GEEN Attack, GEEN
+zone-afhankelijkheid) toont dat een gewone activated ability niets met deze
+zone-regel te maken heeft — die geldt uitsluitend voor `isAttack:true`.
+
+
+3. STAPPENPLAN
+--------------
+Stap 1 — Open vragen hierboven beantwoorden (of bewust als TODO laten staan
+en met een tijdelijke default verder werken). AFGEROND — alle vragen (1 t.e.m.
+12) beantwoord, zie sectie 2/2b/2d.
+
+Stap 2 — Datamodel-uitbreiding vastleggen indien nodig. AFGEROND —
+normalizeEffect() in card-data.js valideert nu ook `kind` ('trigger'/
+'activated') en `isAttack`. De cardbuilder se effects-editor kreeg er ook
+meteen een "Soort"-select en een "Dit is een Attack"-checkbox bij, anders
+kon een ontwerper deze velden nergens invullen.
+
+Stap 3 — Per bestaand/gewenst keyword expliciet opschrijven wat het
+impliceert. AFGEROND, zie sectie 5 (KEYWORD-WOORDENBOEK).
+
+Stap 4 — Precedentie-/samenvoegregels uitschrijven. AFGEROND, zie vraag 1/5
+en de code-comments in getEffectiveEffects() zelf.
+
+Stap 5 — shared/game-rules.js bouwen. AFGEROND: SUBTYPE_EFFECTS (Minion
+volledig ingevuld) + lege TYPE_EFFECTS + getEffectiveEffects(). Ingeladen
+in arena.html en cardbuilder.html, na card-data.js. Nog geen wijziging aan
+de rest van arena.html om dit effectief te gebruiken (zie stap 6).
+
+Stap 6 — Vraag 4 is beantwoord: dit traject stopt bij stap 5. Een
+interpreter (die getEffectiveEffects() effectief laat uitvoeren in de
+test-arena, incl. de keuze-UI voor activated abilities uit sectie 1) is
+bewust een apart, later traject — niet in scope hier.
+
+Stap 7 — Testen van deze ronde: AFGEROND (2026-08-23). Getest buiten de
+browser (Node, zelfde ongewijzigde logica uit card-data.js/game-rules.js):
+1) "Gremlin" (Manifestation - Minion, Body 1/Mind 3/Soul 2, GEEN eigen
+   effects[]) -> getEffectiveEffects() geeft precies 1 effect terug: het
+   geërfde Minion-Attack (kind:"activated", isAttack:true, trigger:"",
+   action:"Damage", target:"opponentZone", costs:[{type:"ExhaustSelf"}]) —
+   consistent met sectie 5/2e.
+2) "Mosquito" (Manifestation - Minion, MET een eigen activated ability:
+   vaste value 1, target "chosen", geen isAttack) -> getEffectiveEffects()
+   geeft precies 2 effecten terug: het geërfde Minion-Attack (ongewijzigd,
+   isAttack:true/opponentZone) NAAST de eigen ability (isAttack:false,
+   vaste waarde/target, geen zone-scaling) — bevestigt dat keyword- en
+   kaart-specifieke effecten gewoon samen optellen (vraag 1/5) en dat
+   "activated ⊃ attack" correct enkel voor de gemarkeerde entry geldt.
+Beide gevallen: alle checks geslaagd, geen enkele afwijking t.o.v. de in
+sectie 5 vastgelegde definitie.
+
+Stap 8 — Architectuur.txt bijwerken met een korte entry (datum + wat er
+is toegevoegd). AFGEROND (2026-08-23): bestaande entry van dezelfde datum
+aangevuld met punt 3b (costs-array, opponentZone-target, defender's
+choice — de verfijningen uit sectie 2e die na de oorspronkelijke entry nog
+doorgevoerd waren).
+
+
+4. NOG NIET BESLIST / EXPLICIET BUITEN SCOPE VAN DIT DOCUMENT
+--------------------------------------------------------------
+- Hoe de Manifestation/Destiny-schaderegel (zie 2c) precies als target-
+  waarde in game-rules.js gecodeerd wordt, is een implementatiedetail voor
+  wanneer de interpreter gebouwd wordt — de regel zelf ligt al vast, enkel
+  de codering niet.
+- De condition-parser (vrije condition-string op een effect) bestaat nog
+  niet en wordt hier niet gebouwd — blijft puur documentair, zoals nu.
+- Een UI in de cardbuilder om per subtype/type de SUBTYPE_EFFECTS/
+  TYPE_EFFECTS te bewerken bestaat (nog) niet in dit plan — dit document
+  gaat uit van rechtstreeks bewerken van game-rules.js door de ontwikkelaar,
+  niet via een formulier. Indien later gewenst: apart traject.

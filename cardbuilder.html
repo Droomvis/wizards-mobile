@@ -109,6 +109,21 @@
   .subtype-chip-row .subtype-chip input{ accent-color: var(--gold); cursor:pointer; }
   .subtype-chip-row .subtype-chip.checked{ border-color: var(--gold); color: var(--gold-soft); background:#2a2338; }
   .subtype-chip-row .subtype-empty-hint{ font-size:12px; color: var(--ink-dim); font-style:italic; }
+  .subtype-chip-row .subtype-chip-add{
+    border-style:dashed; background:transparent; color: var(--ink-dim); font:inherit; cursor:pointer;
+  }
+  .subtype-chip-row .subtype-chip-add:hover{ border-color: var(--gold); color: var(--gold-soft); }
+  .subtype-new-input{ display:inline-flex; align-items:center; gap:6px; }
+  .subtype-new-input input{
+    background: var(--panel); border:1px solid var(--border); border-radius:6px;
+    padding:6px 8px; font-size:12.5px; color: var(--ink); width:160px;
+  }
+  .subtype-new-input button{
+    background: var(--panel); border:1px solid var(--border); border-radius:6px;
+    padding:4px 8px; cursor:pointer; color: var(--ink-muted); font-size:13px;
+  }
+  .subtype-new-input button:hover{ border-color: var(--gold); color: var(--gold-soft); }
+  .subtype-new-error{ font-size:11.5px; color:#e08a8a; margin-left:2px; }
 
   /* ---- Automatisatie: rarity/draft/effects (niet zichtbaar op de kaart) ---- */
   .automation-hint{ font-size:12px; color: var(--ink-dim); margin:-4px 0 14px; line-height:1.5; }
@@ -132,6 +147,21 @@
   .effect-cost-row label{ font-size:11px; color: var(--ink-dim); display:flex; align-items:center; gap:6px; }
   .effect-cost-row input[type=number]{ width:60px; }
   .effect-cost-row input[type=checkbox]{ accent-color: var(--gold); cursor:pointer; }
+  .effect-costs-block{ display:flex; flex-direction:column; gap:8px; padding-top:8px; border-top:1px solid var(--border-soft); }
+  .effect-costs-block .costs-label{ font-size:10px; text-transform:uppercase; letter-spacing:0.6px; color: var(--ink-dim); }
+  .cost-row{ display:flex; align-items:center; gap:8px; }
+  .cost-row select{ flex:1 1 160px; font-size:12.5px; padding:6px 8px; }
+  .cost-row input[type=number]{ width:60px; font-size:12.5px; padding:6px 6px; }
+  .cost-row button{
+    background:none; border:1px solid var(--border); color: var(--ink-dim); cursor:pointer;
+    font-size:11px; padding:4px 8px; border-radius:4px; flex-shrink:0;
+  }
+  .cost-row button:hover{ border-color:#a1364a; color:#e79aaa; }
+  .btn-add-cost{
+    align-self:flex-start; background:none; border:1px solid var(--border); color: var(--ink-muted);
+    cursor:pointer; font-size:11.5px; padding:5px 10px; border-radius:5px;
+  }
+  .btn-add-cost:hover{ border-color: var(--gold); color: var(--gold-soft); }
 
   main{
     flex:1;
@@ -426,9 +456,9 @@
           </div>
         </div>
 
-        <div class="field-row" id="group-subtypes-row" style="display:none;">
+        <div class="field-row" id="group-subtypes-row">
           <div class="field" style="flex:1 1 100%;">
-            <label>Subtypes — getoond op de kaart als bv. "Manifestation - Minion" (meerdere mogelijk)</label>
+            <label>Subtypes — getoond op de kaart als bv. "Manifestation - Minion" (meerdere mogelijk, of maak er zelf eentje bij)</label>
             <div id="group-subtypes" class="subtype-chip-row"></div>
           </div>
         </div>
@@ -467,6 +497,11 @@
                 <label for="f-soul">Soul</label>
                 <input type="number" id="f-soul" placeholder="—">
               </div>
+              <div class="compact-field" title="Elke in-play kaart heeft Slumber, ook zonder printed waarde (dan 0). Bepaalt hoeveel tijdtellers ze krijgt bij het exhausten.">
+                <span class="cf-icon">💤</span>
+                <label for="f-slumber">Slumber</label>
+                <input type="number" id="f-slumber" min="0" step="1" value="0">
+              </div>
             </div>
           </div>
         </div>
@@ -474,8 +509,8 @@
         <div class="section-title">Kaarttekst</div>
         <div class="field-row">
           <div class="field" style="flex:1 1 100%;">
-            <label for="f-gameText">Game text (vrije tekst, incl. keywords)</label>
-            <textarea id="f-gameText" rows="6" placeholder="Bv. Slumber 2. Wanneer deze kaart Exhaust raakt, deal 1 Body damage aan een teiken zonder Warding."></textarea>
+            <label for="f-gameText">Game text (vrije tekst, incl. keywords) — Slumber staat er automatisch bij op basis van het veld hierboven, niet hier typen</label>
+            <textarea id="f-gameText" rows="6" placeholder="Bv. Wanneer deze kaart Exhaust raakt, deal 1 Body damage aan een teiken zonder Warding."></textarea>
           </div>
         </div>
         <div class="field-row">
@@ -577,6 +612,7 @@
 </div>
 
 <script src="shared/card-data.js"></script>
+<script src="shared/game-rules.js"></script>
 <script src="shared/card-render.js"></script>
 <script src="shared/hat-avatar.js"></script>
 <script src="shared/drive-auth.js"></script>
@@ -588,6 +624,9 @@
 
   let collection = [];
   let currentId = null;
+  // Vrij toegevoegde subtypes (spec sectie 6), Drive-gesynchroniseerd net als
+  // `collection` hierboven — zie card-data.js voor de vorm van elk element.
+  let customSubtypes = [];
 
   // Ingevuld door DriveAuth na een geslaagde login (zie onderaan).
   let driveUsername = "";
@@ -744,6 +783,7 @@
     document.getElementById("f-body").value = card.body;
     document.getElementById("f-mind").value = card.mind;
     document.getElementById("f-soul").value = card.soul;
+    document.getElementById("f-slumber").value = card.slumber;
     document.getElementById("f-gameText").value = card.gameText;
     document.getElementById("f-flavorText").value = card.flavorText;
     document.getElementById("f-notes").value = card.notes;
@@ -786,6 +826,7 @@
     card.body = bodyRaw === "" ? "" : toNum(bodyRaw, "");
     card.mind = mindRaw === "" ? "" : toNum(mindRaw, "");
     card.soul = soulRaw === "" ? "" : toNum(soulRaw, "");
+    card.slumber = toNum(document.getElementById("f-slumber").value, 0);
     card.gameText = document.getElementById("f-gameText").value;
     card.flavorText = document.getElementById("f-flavorText").value;
     card.notes = document.getElementById("f-notes").value;
@@ -812,18 +853,13 @@
   function renderSubtypeGroup(card){
     const row = document.getElementById("group-subtypes-row");
     const wrap = document.getElementById("group-subtypes");
-    const allowed = SUBTYPE_LIST_BY_TYPE[card.type] || [];
-    if (allowed.length === 0){
-      row.style.display = "none";
-      wrap.innerHTML = "";
-      return;
-    }
     row.style.display = "flex";
+    const allowed = getAllowedSubtypes(card.type, customSubtypes);
     wrap.innerHTML = allowed.map(st => {
       const checked = (card.subtypes || []).includes(st);
       return `<label class="subtype-chip${checked ? " checked" : ""}"><input type="checkbox" value="${escapeHtml(st)}" ${checked ? "checked" : ""}> ${escapeHtml(st)}</label>`;
-    }).join("");
-    wrap.querySelectorAll(".subtype-chip").forEach(chip => {
+    }).join("") + `<button type="button" class="subtype-chip subtype-chip-add" id="btn-add-subtype">+ Nieuw subtype</button>`;
+    wrap.querySelectorAll("label.subtype-chip").forEach(chip => {
       const cb = chip.querySelector("input");
       cb.addEventListener("change", () => {
         chip.classList.toggle("checked", cb.checked);
@@ -832,6 +868,52 @@
         renderSidebar();
         autosave();
       });
+    });
+    const addBtn = document.getElementById("btn-add-subtype");
+    if (addBtn) addBtn.addEventListener("click", () => showNewSubtypeInput(card));
+  }
+
+  // "+ Nieuw subtype": vervangt de knop tijdelijk door een naam-invoer.
+  // Validatie via isSubtypeNameTaken() uit card-data.js (case-insensitief,
+  // over alle hoofdtypes heen — cfr. spec sectie 6, uniciteits-check).
+  function showNewSubtypeInput(card){
+    const addBtn = document.getElementById("btn-add-subtype");
+    if (!addBtn) return;
+    const inputRow = document.createElement("span");
+    inputRow.className = "subtype-new-input";
+    inputRow.innerHTML =
+      '<input type="text" id="new-subtype-name" placeholder="Naam nieuw subtype…" maxlength="40">' +
+      '<button type="button" id="btn-confirm-subtype" title="Toevoegen">✓</button>' +
+      '<button type="button" id="btn-cancel-subtype" title="Annuleren">✕</button>' +
+      '<span class="subtype-new-error" id="subtype-new-error"></span>';
+    addBtn.replaceWith(inputRow);
+    const nameInput = document.getElementById("new-subtype-name");
+    nameInput.focus();
+
+    const cancel = () => renderSubtypeGroup(card);
+    const confirmAdd = () => {
+      const name = nameInput.value.trim();
+      const errEl = document.getElementById("subtype-new-error");
+      if (!name){ errEl.textContent = "Geef een naam op."; return; }
+      if (isSubtypeNameTaken(name, customSubtypes)){
+        errEl.textContent = `Bestaat al: "${name}".`;
+        return;
+      }
+      customSubtypes.push({ name, type: card.type, createdBy: driveUsername || "", createdAt: Date.now() });
+      if (!Array.isArray(card.subtypes)) card.subtypes = [];
+      card.subtypes.push(name);
+      renderSubtypeGroup(card);
+      syncFromForm();
+      renderPreview();
+      renderSidebar();
+      autosave();
+    };
+
+    document.getElementById("btn-confirm-subtype").addEventListener("click", confirmAdd);
+    document.getElementById("btn-cancel-subtype").addEventListener("click", cancel);
+    nameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter"){ e.preventDefault(); confirmAdd(); }
+      if (e.key === "Escape"){ e.preventDefault(); cancel(); }
     });
   }
 
@@ -844,10 +926,35 @@
     });
   }
 
+  // Cost-labels: leesbaar voor de type-select, met of zonder "waarde"-input
+  // (cfr. Gamerules-specificatie.txt punt 1: exhausten/self-vulnerable
+  // hebben geen bedrag, spite/action/discard wel).
+  const COST_TYPE_LABELS = {
+    ExhaustSelf: "Exhaust deze kaart",
+    Spite: "Betaal Spite",
+    Action: "Betaal Actie(s)",
+    Discard: "Discard kaart(en) uit hand",
+    SelfVulnerable: "Maak jezelf Vulnerable/Confused/Forlorn"
+  };
+  const COST_TYPE_HAS_VALUE = { Spite: true, Action: true, Discard: true };
+
+  function buildCostRowHtml(cost, idx){
+    return `
+      <div class="cost-row" data-cost-idx="${idx}">
+        <select class="cost-type">
+          ${COST_TYPE_LIST.map(t => `<option value="${t}"${cost.type === t ? " selected" : ""}>${COST_TYPE_LABELS[t] || t}</option>`).join("")}
+        </select>
+        <input type="number" class="cost-value" min="1" step="1" value="${cost.value || 1}" style="${COST_TYPE_HAS_VALUE[cost.type] ? "" : "visibility:hidden;"}">
+        <button type="button" class="btn-remove-cost">Verwijder</button>
+      </div>
+    `;
+  }
+
   function buildEffectRowEl(eff, idx){
     const row = document.createElement("div");
     row.className = "effect-row";
     row.dataset.effectId = eff.id;
+    const isActivated = eff.kind === "activated";
     row.innerHTML = `
       <div class="effect-row-head">
         <span class="effect-index">Effect ${idx + 1}</span>
@@ -855,6 +962,13 @@
       </div>
       <div class="effect-fields">
         <div class="field">
+          <label>Soort</label>
+          <select class="ef-kind">
+            <option value="trigger"${!isActivated ? " selected" : ""}>Trigger (automatisch)</option>
+            <option value="activated"${isActivated ? " selected" : ""}>Activated ability (speler betaalt de cost bewust)</option>
+          </select>
+        </div>
+        <div class="field ef-trigger-field" style="${isActivated ? "display:none;" : ""}">
           <label>Trigger</label>
           <select class="ef-trigger">
             <option value="">— geen —</option>
@@ -883,12 +997,40 @@
         <label>Conditie (vrije tekst, optioneel — bv. "bodyShield == 0")</label>
         <input type="text" class="ef-condition" value="${escapeHtml(eff.condition || "")}" placeholder="nog geen condition-parser — puur ter documentatie">
       </div>
-      <div class="effect-cost-row">
-        <label>🔥 Extra Spite-kost <input type="number" class="ef-cost-spite" min="0" step="1" value="${(eff.cost && eff.cost.spite) || 0}"></label>
-        <label><input type="checkbox" class="ef-cost-exhaust" ${(eff.cost && eff.cost.exhaustSelf) ? "checked" : ""}> Kost: exhaust deze kaart</label>
+      <div class="effect-costs-block ef-costs-field" style="${isActivated ? "" : "display:none;"}">
+        <div class="costs-label">Cost om te activeren (combineerbaar — bv. exhaust + discard 1 kaart)</div>
+        <div class="ef-costs-list">
+          ${(eff.costs || []).map((c, ci) => buildCostRowHtml(c, ci)).join("") || `<div style="font-size:11.5px;color:var(--ink-dim);font-style:italic;">Nog geen cost — voeg er minstens één toe.</div>`}
+        </div>
+        <button type="button" class="btn-add-cost">+ Cost toevoegen</button>
+        <label style="font-size:11px; color: var(--ink-dim); display:flex; align-items:center; gap:6px;" title="Markeert dit specifiek als een Attack (zone-afhankelijke waarde/schadetype, cfr. Gamerules-specificatie.txt) — voor Minions al automatisch aanwezig via het keyword, dit is voor andere kaarten met een eigen Attack-achtige ability.">
+          <input type="checkbox" class="ef-is-attack" ${eff.isAttack ? "checked" : ""}> Dit is een Attack
+        </label>
       </div>
     `;
     row.querySelector(".btn-remove-effect").addEventListener("click", () => removeEffect(eff.id));
+    row.querySelector(".ef-kind").addEventListener("change", (e) => {
+      syncFromForm();
+      const card = findCard(currentId);
+      if (card) renderEffectsList(card);
+      renderPreview();
+      autosave();
+    });
+    row.querySelector(".btn-add-cost").addEventListener("click", () => addCostToEffect(eff.id));
+    row.querySelectorAll(".btn-remove-cost").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const costIdx = Number(btn.closest(".cost-row").dataset.costIdx);
+        removeCostFromEffect(eff.id, costIdx);
+      });
+    });
+    row.querySelectorAll(".cost-type").forEach(sel => {
+      sel.addEventListener("change", () => {
+        syncFromForm();
+        const card = findCard(currentId);
+        if (card) renderEffectsList(card);
+        autosave();
+      });
+    });
     return row;
   }
 
@@ -909,21 +1051,52 @@
     autosave();
   }
 
+  function addCostToEffect(effectId){
+    const card = findCard(currentId);
+    if (!card) return;
+    const eff = (card.effects || []).find(e => e.id === effectId);
+    if (!eff) return;
+    if (!eff.costs) eff.costs = [];
+    eff.costs.push(normalizeCostEntry({}));
+    renderEffectsList(card);
+    autosave();
+  }
+
+  function removeCostFromEffect(effectId, costIdx){
+    const card = findCard(currentId);
+    if (!card) return;
+    const eff = (card.effects || []).find(e => e.id === effectId);
+    if (!eff) return;
+    eff.costs = (eff.costs || []).filter((c, i) => i !== costIdx);
+    renderEffectsList(card);
+    autosave();
+  }
+
   function syncEffectsFromForm(card){
     if (!card || !card.effects) return;
     document.querySelectorAll("#effects-list .effect-row").forEach(row => {
       const id = row.dataset.effectId;
       const eff = card.effects.find(e => e.id === id);
       if (!eff) return;
-      eff.trigger = row.querySelector(".ef-trigger").value;
+      eff.kind = row.querySelector(".ef-kind").value === "activated" ? "activated" : "trigger";
+      // Trigger is enkel zinvol/zichtbaar voor kind:"trigger" — voor
+      // "activated" blijft dit veld leeg (cfr. punt 1: een activated
+      // ability wordt nooit door een spelgebeurtenis afgevuurd).
+      eff.trigger = eff.kind === "trigger" ? row.querySelector(".ef-trigger").value : "";
       eff.action = row.querySelector(".ef-action").value;
       eff.target = row.querySelector(".ef-target").value;
       eff.value = toNum(row.querySelector(".ef-value").value, 0);
       eff.condition = row.querySelector(".ef-condition").value;
-      eff.cost = {
-        spite: toNum(row.querySelector(".ef-cost-spite").value, 0),
-        exhaustSelf: row.querySelector(".ef-cost-exhaust").checked
-      };
+      const isAttackEl = row.querySelector(".ef-is-attack");
+      eff.isAttack = isAttackEl ? isAttackEl.checked : false;
+      if (eff.kind === "activated"){
+        eff.costs = Array.from(row.querySelectorAll(".ef-costs-list .cost-row")).map(costRow => normalizeCostEntry({
+          type: costRow.querySelector(".cost-type").value,
+          value: toNum(costRow.querySelector(".cost-value").value, 1)
+        }));
+      } else {
+        eff.costs = [];
+      }
     });
   }
 
@@ -1144,7 +1317,7 @@
   // ---------- Autosave (enkel lokale browser — geen vervanging voor JSON-export of Drive) ----------
   function autosave(){
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ collection, currentId }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ collection, currentId, customSubtypes }));
     } catch (e){ /* opslag onbeschikbaar — stil negeren */ }
     // Ingebed: de collectie meteen doorsturen naar de shell, die het
     // doorstuurt naar andere open modules (bv. Collectie) — zo verschijnen
@@ -1168,6 +1341,7 @@
         const data = JSON.parse(saved);
         collection = (data.collection || []).map(normalizeCard);
         currentId = data.currentId && findCard(data.currentId) ? data.currentId : (collection[0] ? collection[0].id : null);
+        customSubtypes = Array.isArray(data.customSubtypes) ? data.customSubtypes : [];
         renderAll();
       } catch (e){
         alert("Kon vorige sessie niet herstellen.");
@@ -1194,7 +1368,7 @@
   function applyUnknownFields(data){
     driveUnknownFields = {};
     Object.keys(data).forEach(key => {
-      if (!["collection", "currentId", "lastEditedBy", "lastEditedAt", "error"].includes(key)){
+      if (!["collection", "currentId", "customSubtypes", "lastEditedBy", "lastEditedAt", "error"].includes(key)){
         driveUnknownFields[key] = data[key];
       }
     });
@@ -1210,6 +1384,7 @@
       const data = await DriveAuth.fetchFullSync(drivePassword);
       collection = Array.isArray(data.collection) ? data.collection.map(normalizeCard) : [];
       currentId = data.currentId && collection.find(c => c.id === data.currentId) ? data.currentId : (collection[0] ? collection[0].id : null);
+      customSubtypes = Array.isArray(data.customSubtypes) ? data.customSubtypes : [];
       applyUnknownFields(data);
 
       driveLastEditedBy = data.lastEditedBy || "";
@@ -1238,6 +1413,18 @@
 
     const cloudCards = Array.isArray(cloudData.collection) ? cloudData.collection.map(normalizeCard) : [];
     const mergedById = new Map(cloudCards.map(c => [c.id, c]));
+
+    // customSubtypes is puur additief (geen conflict mogelijk zoals bij
+    // kaarten): unie op naam, case-insensitief, cloud-versie wint bij een
+    // exacte naam-botsing (zou in de praktijk niet mogen voorkomen dankzij
+    // de uniciteits-check bij het aanmaken).
+    const cloudCustomSubtypes = Array.isArray(cloudData.customSubtypes) ? cloudData.customSubtypes : [];
+    const mergedSubtypesByName = new Map(cloudCustomSubtypes.map(s => [String(s.name || "").toLowerCase(), s]));
+    for (const s of customSubtypes){
+      const key = String(s.name || "").toLowerCase();
+      if (!mergedSubtypesByName.has(key)) mergedSubtypesByName.set(key, s);
+    }
+    const mergedCustomSubtypes = Array.from(mergedSubtypesByName.values());
 
     let addedCount = 0, unchangedCount = 0, mineWonCount = 0, cloudWonCount = 0;
     for (const localCard of collection){
@@ -1274,6 +1461,7 @@
     const payload = Object.assign({}, driveUnknownFields, {
       collection: merged,
       currentId: (currentId && merged.find(c => c.id === currentId)) ? currentId : (merged[0] ? merged[0].id : null),
+      customSubtypes: mergedCustomSubtypes,
       lastEditedBy: driveUsername || "(naamloos)",
       lastEditedAt: Date.now()
     });
@@ -1290,6 +1478,7 @@
       }
       collection = merged;
       currentId = payload.currentId;
+      customSubtypes = mergedCustomSubtypes;
       driveLastEditedBy = payload.lastEditedBy;
       driveLastEditedAt = payload.lastEditedAt;
       driveBaselineEditedAt = payload.lastEditedAt;
@@ -1336,6 +1525,7 @@
     const payload = Object.assign({}, driveUnknownFields, {
       collection,
       currentId,
+      customSubtypes,
       lastEditedBy: driveUsername || "(naamloos)",
       lastEditedAt: Date.now()
     });
@@ -1515,6 +1705,7 @@
       drivePassword = session.password;
       collection = Array.isArray(data.collection) ? data.collection.map(normalizeCard) : [];
       currentId = data.currentId && collection.find(c => c.id === data.currentId) ? data.currentId : (collection[0] ? collection[0].id : null);
+      customSubtypes = Array.isArray(data.customSubtypes) ? data.customSubtypes : [];
       applyUnknownFields(data);
       driveLastEditedBy = data.lastEditedBy || "";
       driveLastEditedAt = data.lastEditedAt || null;

@@ -83,6 +83,15 @@ function buildCardFrameHtml(card){
     if (parts.length) statsHtml = `<div class="card-stats">${parts.join("")}</div>`;
   }
 
+  // Slumber: automatisch afgeleide keyword-regel op basis van het geprinte
+  // getal (0 = geen printed waarde) — bewust NIET manueel getypt in
+  // gameText, om dubbele/tegenstrijdige waarden te vermijden (cfr. Body/
+  // Mind/Soul, die ook als apart veld i.p.v. tekst op de kaart komen).
+  // Enkel getoond zodra Slumber > 0.
+  const slumberLineHtml = card.slumber > 0
+    ? `<div class="card-keyword-line"><strong>Slumber ${escapeHtml(card.slumber)}</strong></div>`
+    : "";
+
   let flavorHtml = card.flavorText
     ? `<div class="card-flavor">${escapeHtml(card.flavorText)}</div>`
     : "";
@@ -103,6 +112,7 @@ function buildCardFrameHtml(card){
           </div>
         </div>
         ${artHtml}
+        ${slumberLineHtml}
         <div class="card-text">${escapeHtml(card.gameText)}</div>
         ${flavorHtml}
         ${statsHtml}

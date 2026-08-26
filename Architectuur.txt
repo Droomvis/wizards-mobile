@@ -195,3 +195,147 @@ draftLegal-veld (card-data.js, sinds 2026-08-15 met het oog op precies deze
 functionaliteit toegevoegd) wordt gebruikt om de aanbod-pools te filteren —
 kaarten moeten dus expliciet in de Kaartbuilder als draft-legaal aangevinkt
 worden vóór ze in de draft kunnen opduiken.
+
+
+Op 2026-08-23 toegevoegd: Slumber, permanent-schade & dood, en een eerste
+keyword/type-regelmodule (game-rules.js). Volledige specificatie, alle open
+vragen en de antwoorden erop: zie Gamerules-specificatie.txt (naast dit
+bestand, in development).
+
+1) Slumber (card-data.js: nieuw veld slumber, default 0 — elke in-play
+kaart wordt geacht dit te hebben, ook zonder geprinte waarde). Bepaalt
+hoeveel witte Time Counters een kaart krijgt bij het exhausten (arena.html:
+gezet in de zoom-tap-btn-click-handler) en dus na hoeveel acties van de
+eigenaar ze vanzelf weer ready wordt. spendAction() (klik op de
+Actions-teller) is hiervoor aangepast: telt voortaan enkel getapte kaarten
+af en readiet ze bij 0 — voorheen tikte deze functie de teller van ALLE
+in-play kaarten af (ook ongetapte) zonder ooit te readien, wat niet klopte
+met dit gedrag. "Slumber X" verschijnt automatisch boven de gametext op de
+kaart (card-render.js) zodra X groter dan 0 is — afgeleid uit het veld,
+niet manueel te typen in gameText. Cardbuilder kreeg een invulveld naast
+Body/Mind/Soul.
+
+2) Permanent-schade & dood (Manifestation/Destiny), cfr.
+Gamerules-specificatie.txt sectie 2c: elke Manifestation/Destiny in het
+spel ligt in exact één zone (inPlayBody/inPlayMind/inPlaySoul) en kan enkel
+schade van het overeenkomstige type krijgen. Schade = de bestaande zwarte
+teller (counters.black), geneest niet vanzelf. Zodra die teller minstens de
+stat bereikt die bij de zone hoort, wordt de kaart Vulnerable/Confused/
+Forlorn (letterlijk dezelfde naamgeving als de al bestaande
+shieldStatusBadge() voor Wizard-schilden) — met, in tegenstelling tot die
+puur informatieve Wizard-versie, een echt gevolg: eens in die staat doodt
+élke volgende schade de kaart (naar discard). Geïmplementeerd in arena.html
+(isPermanentVulnerable/permanentStatusLabel/addCounterToInstance), zichtbaar
+via een badge op de kaartfiche op het bord en in de zoom-view. Geen nieuw
+datamodel nodig — wel nog geen enkele manier om automatisch schade toe te
+dienen (dat wacht op een interpreter, zie punt 3).
+
+3) Eerste keyword/type-regelmodule: shared/game-rules.js (nieuw bestand,
+geladen na card-data.js in arena.html en cardbuilder.html). Definieert
+SUBTYPE_EFFECTS/TYPE_EFFECTS (wat een subtype/type automatisch impliceert,
+los van wat een kaart in zijn eigen effects[] extra doet) +
+getEffectiveEffects(card). Nu enkel gevuld voor Minion (kan Attacken:
+activated ability, cost = exhaustSelf, zone-afhankelijke schade/schadetype).
+Bewust enkel de DEFINITIE-laag — geen interpreter, niets hierin voert nog
+iets automatisch uit in de test-arena. Datamodel-impact in card-data.js:
+normalizeEffect() valideert nu ook kind ("trigger"/"activated") en isAttack
+(markeert een activated ability specifiek als Attack, met de zone-regel —
+een gewone activated ability zoals een toekomstige "Mosquito"-kaart
+gebruikt gewoon zijn eigen vaste waarde/target). Cardbuilder se
+effects-editor kreeg er een "Soort"-select en een "Dit is een
+Attack"-checkbox bij zodat deze velden ook effectief ingevuld kunnen
+worden.
+
+3b) Verfijning n.a.v. de eerste test van bovenstaande module (cfr.
+Gamerules-specificatie.txt sectie 2e), zelfde datum: `cost` (vast object)
+vervangen door `costs` (array van componenten — COST_TYPE_LIST: ExhaustSelf,
+Spite, Action, Discard, SelfVulnerable, combineerbaar). normalizeCostEntry()
+valideert elke component; een ouder effect met het vorige `cost`-object
+wordt automatisch gemigreerd. normalizeEffect() negeert voortaan `trigger`
+voor kind:"activated" en `costs` voor kind:"trigger". cardbuilder.html
+verbergt de Trigger-dropdown zodra "Soort" op Activated ability staat en
+toont dan een cost-lijst-editor i.p.v. het vorige vaste cost-veld. Daarnaast
+is de Minion-Attack-ability zelf preciezer vastgelegd: target is
+"opponentZone" (nieuw in TARGET_LIST) — een ZONE bij de tegenstander, niet
+"opponentActiveWizard" — en de verdediger kiest zelf hoe de schade wordt
+opgevangen (schild, Manifestation/Destiny sacrificen, of rechtstreeks
+banishen uit deck/hand/discard, afhankelijk van het schadetype). Dit
+"zone-attack met defender's choice"-mechanisme is dus apart van de
+generieke Manifestation/Destiny-schaderegel uit punt 2 hierboven (die geldt
+bij schade aan een specifieke kaart-instantie, niet aan een hele zone). De
+exacte spelerskeuze-UI voor de verdediger, en het Flying-keyword (dat de
+Attack later alternatief zou mogen targetten, defender's choice omzeild),
+zijn beide nog niet gebouwd — genoteerd als latere uitbreiding.
+
+4) Vrij toegevoegde subtypes (cfr. Gamerules-specificatie.txt sectie 6),
+zelfde datum: een "+ Nieuw subtype"-chip in de subtype-rij van zowel
+cardbuilder.html als Wizards_Mobile.html (elk met hun eigen kopie van deze
+UI), zodat SUBTYPE_LIST_BY_TYPE (card-data.js) niet langer de enige bron is
+van wat een subtype mag heten. Nieuwe helpers in card-data.js:
+getAllowedSubtypes(type, customSubtypes) en isSubtypeNameTaken(name,
+customSubtypes) — die laatste is de uniciteits-check over ALLE hoofdtypes
+heen (case-insensitief), nodig omdat SUBTYPE_EFFECTS een platte naamruimte
+is (zie het technisch aandachtspunt in spec-sectie 5). normalizeCard()'s
+subtypes-filter tegen SUBTYPE_LIST_BY_TYPE is daarvoor bewust losgelaten
+(zou anders elk custom subtype terug wegfilteren) — nog enkel opschonen
+van lege/dubbele strings, de chip-UI blijft de facto de gatekeeper.
+Bewaarplaats: Drive-gesynchroniseerd, nieuw top-level veld "customSubtypes"
+in wizards-cards.json (platte array van {name, type, createdBy, createdAt}),
+exact zoals "collection" geladen/geschreven/gemerged in elke
+driveLoad/driveMerge/driveWrite/login-callback van beide bestanden, en
+toegevoegd aan de exclude-lijst van applyUnknownFields(). De subtype-rij is
+niet langer verborgen bij 0 ingebouwde subtypes (elk hoofdtype kan nu een
+custom subtype krijgen).
+
+Op 2026-08-24 toegevoegd: algemene online-aanwezigheid + duel-challenge in
+de Council (TO DO.txt, "herwerken Wizard Council"). Drie bestanden erbij
+betrokken: server.js (relay-server), council.html, index.html + arena.html
+(cross-tab doorschakeling).
+
+1) Presence, los van zalen (server.js): tot nu toe hield de relay-server
+enkel bij wie in een ZAAL zat (rooms-info) — wie enkel ingelogd was zonder
+zaal te kiezen, stond nergens met naam geregistreerd. Nieuw berichttype
+"presence" (client stuurt dit meteen na het openen van de lobby-socket, los
+van elke room-join) zet ws.hasPresence = true; een geslaagde "join" impli-
+ceert dit ook. Nieuwe broadcastPresenceInfo(), zelfde opzet als de
+bestaande broadcastRoomsInfo(): stuurt "presence-info" (peerId/naam/room,
+room = null buiten een zaal) naar iedereen, bij connect/presence/join/leave/
+disconnect. Ook een nieuw "welcome"-bericht (peerId, meteen bij connect) —
+voorheen kende een client zijn eigen peerId pas na een room-join ("joined"),
+wat niet meer volstond nu presence/challenges ook zonder join moeten werken.
+
+2) Vergadertafel (council.html): de uit de legacy-council teruggehaalde
+SVG-tafel-met-8-stoelen (viewBox 1700x1100, ongewijzigde tekening), nu in
+#cc-placeholder (de lobby-landingsweergave, dus NIET zichtbaar terwijl je in
+een zaal zit). Elke online speler (presence-info) krijgt op een vaste
+%-positie (afgeleid uit de 8 <use>-transforms van de tafel) een canvas met
+zijn hoed (HatAvatar via de al bestaande drawPeerAvatar()) en, via het
+title-attribuut, de naam bij hover. Plaatsing simpel gehouden: gesorteerd op
+peerId en de eerste 8 op een stoel — bij een 9e gelijktijdige online speler
+valt die gewoon van de lijst af, en de toewijzing kan verschuiven bij elke
+online/offline-wissel (geen "onthouden welke stoel bij wie hoort").
+
+3) Duel-challenge: rechterklikken op andermans stoel toont een klein
+contextmenu ("X uitdagen voor een duel") → "challenge-invite" naar die
+peerId (nieuw, puur routerend berichttype in server.js, zelfde principe als
+de bestaande webrtc-*-berichten). De uitgedaagde krijgt een vaste banner
+bovenaan (Aanvaarden/Weigeren, zichtbaar ongeacht lobby/zaal-weergave) →
+"challenge-response" terug, met bij aanvaarding een vers gegenereerde
+roomcode ("DUEL-XXXXX"). Bewust eenvoudig gehouden: hoogstens één lopende
+uitdaging per richting tegelijk, 30s timeout aan uitdager-kant zonder
+antwoord.
+
+4) Cross-tab doorschakeling naar de Arena: bij een aanvaarde/verstuurde
+uitdaging stuurt council.html een "wizards:duel-start"-postMessage
+(serverUrl + roomCode) naar window.parent — enkel zinvol binnen de shell
+(index.html), die dit doorstuurt naar de Arena-iframe volgens hetzelfde
+"klik-tab-dan-laad-dan-stuur"-patroon als de al bestaande
+"wizards:edit-card"-boodschap. arena.html kreeg een nieuwe
+window.message-listener die serverUrl/roomCode invult in de bestaande
+mp-server-url/mp-room-code-velden en mpConnect() aanroept — hergebruikt dus
+gewoon de bestaande multiplayer-verbindingslogica, geen apart duel-pad.
+serverUrl komt bewust van de COUNCIL-sessie (ccServerUrl), niet van arena's
+eigen opgeslagen instelling, zodat beide spelers gegarandeerd op dezelfde
+relay-server landen ook al hebben ze elk een ander adres ingesteld. Buiten
+de shell geopend (window.self === window.top) toont council.html enkel de
+roomcode als tekst, geen automatische doorschakeling mogelijk.

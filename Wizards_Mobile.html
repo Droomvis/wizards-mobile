@@ -271,6 +271,19 @@
   }
   .subtype-chip-row .subtype-chip.checked{ border-color: var(--gold); color: var(--gold-soft); background:#2a2338; }
   .subtype-chip-row .subtype-chip input{ display:none; }
+  .subtype-chip-row .subtype-chip-add{
+    border-style:dashed; background:transparent; color: var(--ink-dim); font:inherit; cursor:pointer;
+  }
+  .subtype-new-input{ display:inline-flex; align-items:center; gap:6px; }
+  .subtype-new-input input{
+    background: var(--bg); border:1px solid var(--border); border-radius:16px;
+    padding:9px 12px; font-size:13.5px; color: var(--ink); width:150px; min-height:40px;
+  }
+  .subtype-new-input button{
+    background: var(--bg); border:1px solid var(--border); border-radius:16px;
+    padding:8px 12px; cursor:pointer; color: var(--ink-muted); font-size:14px; min-height:40px;
+  }
+  .subtype-new-error{ font-size:11.5px; color:#e08a8a; margin-left:2px; flex-basis:100%; }
 
   .tag-chips{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
   .tag-chip{
@@ -295,11 +308,20 @@
   .effect-fields{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px; }
   .effect-fields .field{ margin-bottom:0; }
   .effect-fields select, .effect-fields input{ font-size:14px; padding:10px; min-height:42px; }
-  .effect-cost-row{ display:flex; flex-direction:column; gap:10px; padding-top:8px; border-top:1px solid var(--border-soft); }
-  .effect-cost-row label{ font-size:12.5px; color: var(--ink-dim); display:flex; align-items:center; gap:8px; }
-  .effect-cost-row input[type=number]{ width:64px; background: var(--panel); border:1px solid var(--border); color: var(--ink-light); padding:8px; border-radius:6px; text-align:center; }
-  .effect-cost-row input[type=checkbox]{ width:19px; height:19px; accent-color: var(--gold); }
   .automation-hint{ font-size:12px; color: var(--ink-dim); margin-bottom:12px; line-height:1.5; }
+
+  /* Effecten: kosten-lijst (activated abilities) — zelfde model als cardbuilder.html,
+     mobiele tap-maten (min-height ~40-44px). */
+  .effect-costs-block{ display:flex; flex-direction:column; gap:10px; padding-top:10px; border-top:1px solid var(--border-soft); margin-top:2px; }
+  .effect-costs-block .costs-label{ font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color: var(--ink-dim); }
+  .cost-row{ display:flex; align-items:center; gap:8px; }
+  .cost-row select.cost-type{ flex:1; min-width:0; background: var(--panel); border:1px solid var(--border); color: var(--ink-light); padding:10px 8px; border-radius:6px; font-size:13.5px; min-height:42px; }
+  .cost-row input.cost-value{ width:60px; flex-shrink:0; background: var(--panel); border:1px solid var(--border); color: var(--ink-light); padding:8px; border-radius:6px; text-align:center; min-height:42px; font-size:14px; }
+  .cost-row button.btn-remove-cost{ background:none; border:1px solid var(--border); color: var(--ink-dim); cursor:pointer; font-size:12px; padding:8px 10px; border-radius:6px; min-height:42px; flex-shrink:0; }
+  .btn-add-cost{ align-self:flex-start; background:none; border:1px solid var(--border); color: var(--ink-muted); cursor:pointer; font-size:12.5px; padding:9px 13px; border-radius:6px; min-height:42px; }
+  .cost-empty-hint{ font-size:11.5px; color: var(--ink-dim); font-style:italic; }
+  .ef-is-attack-label{ font-size:12px; color: var(--ink-dim); display:flex; align-items:center; gap:9px; margin-top:2px; min-height:40px; }
+  .ef-is-attack-label input[type=checkbox]{ width:19px; height:19px; accent-color: var(--gold); flex-shrink:0; }
 
   /* editor sticky action bar */
   #editor-actionbar{
@@ -500,8 +522,8 @@
                   <option value="Master">Master</option>
                 </select>
               </div>
-              <div class="field" id="group-subtypes-row" style="display:none;">
-                <label>Subtypes</label>
+              <div class="field" id="group-subtypes-row">
+                <label>Subtypes (maak er zelf eentje bij met de +knop)</label>
                 <div id="group-subtypes" class="subtype-chip-row"></div>
               </div>
             </div>
@@ -556,6 +578,16 @@
                       <button type="button" data-step="f-soul" data-dir="-1">−</button>
                       <input type="number" id="f-soul" placeholder="—" inputmode="numeric">
                       <button type="button" data-step="f-soul" data-dir="1">+</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="stepper-row" style="grid-template-columns:1fr;">
+                  <div>
+                    <div class="stepper-label" title="Elke in-play kaart heeft Slumber, ook zonder printed waarde (dan 0). Bepaalt hoeveel tijdtellers ze krijgt bij het exhausten.">💤 Slumber</div>
+                    <div class="stepper">
+                      <button type="button" data-step="f-slumber" data-dir="-1">−</button>
+                      <input type="number" id="f-slumber" min="0" step="1" value="0" inputmode="numeric">
+                      <button type="button" data-step="f-slumber" data-dir="1">+</button>
                     </div>
                   </div>
                 </div>
@@ -796,6 +828,9 @@
 
   let collection = [];
   let currentId = null;
+  // Vrij toegevoegde subtypes (spec sectie 6), Drive-gesynchroniseerd net als
+  // `collection` hierboven — zie card-data.js voor de vorm van elk element.
+  let customSubtypes = [];
   let decks = [];
   let activeDeckId = null;
   let detailCardId = null;
@@ -1137,14 +1172,13 @@
   function renderSubtypeGroup(card){
     const row = $("group-subtypes-row");
     const wrap = $("group-subtypes");
-    const allowed = SUBTYPE_LIST_BY_TYPE[card.type] || [];
-    if (allowed.length === 0){ row.style.display = "none"; wrap.innerHTML = ""; return; }
     row.style.display = "block";
+    const allowed = getAllowedSubtypes(card.type, customSubtypes);
     wrap.innerHTML = allowed.map(st => {
       const checked = (card.subtypes || []).includes(st);
       return `<label class="subtype-chip${checked ? " checked" : ""}"><input type="checkbox" value="${escapeHtml(st)}" ${checked ? "checked" : ""}> ${escapeHtml(st)}</label>`;
-    }).join("");
-    wrap.querySelectorAll(".subtype-chip").forEach(chip => {
+    }).join("") + `<button type="button" class="subtype-chip subtype-chip-add" id="btn-add-subtype">+ Nieuw subtype</button>`;
+    wrap.querySelectorAll("label.subtype-chip").forEach(chip => {
       const cb = chip.querySelector("input");
       cb.addEventListener("change", () => {
         chip.classList.toggle("checked", cb.checked);
@@ -1153,6 +1187,52 @@
         renderCollectionList();
         autosave();
       });
+    });
+    const addBtn = $("btn-add-subtype");
+    if (addBtn) addBtn.addEventListener("click", () => showNewSubtypeInput(card));
+  }
+
+  // "+ Nieuw subtype": vervangt de knop tijdelijk door een naam-invoer.
+  // Validatie via isSubtypeNameTaken() uit card-data.js (case-insensitief,
+  // over alle hoofdtypes heen — cfr. spec sectie 6, uniciteits-check).
+  function showNewSubtypeInput(card){
+    const addBtn = $("btn-add-subtype");
+    if (!addBtn) return;
+    const inputRow = document.createElement("span");
+    inputRow.className = "subtype-new-input";
+    inputRow.innerHTML =
+      '<input type="text" id="new-subtype-name" placeholder="Naam nieuw subtype…" maxlength="40">' +
+      '<button type="button" id="btn-confirm-subtype" title="Toevoegen">✓</button>' +
+      '<button type="button" id="btn-cancel-subtype" title="Annuleren">✕</button>' +
+      '<span class="subtype-new-error" id="subtype-new-error"></span>';
+    addBtn.replaceWith(inputRow);
+    const nameInput = $("new-subtype-name");
+    nameInput.focus();
+
+    const cancel = () => renderSubtypeGroup(card);
+    const confirmAdd = () => {
+      const name = nameInput.value.trim();
+      const errEl = $("subtype-new-error");
+      if (!name){ errEl.textContent = "Geef een naam op."; return; }
+      if (isSubtypeNameTaken(name, customSubtypes)){
+        errEl.textContent = `Bestaat al: "${name}".`;
+        return;
+      }
+      customSubtypes.push({ name, type: card.type, createdBy: driveUsername || "", createdAt: Date.now() });
+      if (!Array.isArray(card.subtypes)) card.subtypes = [];
+      card.subtypes.push(name);
+      renderSubtypeGroup(card);
+      syncFromForm();
+      renderEditorPreview(findCard(currentId));
+      renderCollectionList();
+      autosave();
+    };
+
+    $("btn-confirm-subtype").addEventListener("click", confirmAdd);
+    $("btn-cancel-subtype").addEventListener("click", cancel);
+    nameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter"){ e.preventDefault(); confirmAdd(); }
+      if (e.key === "Escape"){ e.preventDefault(); cancel(); }
     });
   }
 
@@ -1525,7 +1605,7 @@
   // 🔄-knop) — lokaal opslaan is dus niet hetzelfde als synchroniseren met
   // Drive, en dat onderscheid moet zichtbaar blijven voor de gebruiker.
   function autosave(){
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ collection, currentId })); } catch (e){}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ collection, currentId, customSubtypes })); } catch (e){}
     hasUnsyncedChanges = true;
     updateSyncBadge();
   }
@@ -1547,6 +1627,7 @@
         const data = JSON.parse(saved);
         collection = (data.collection || []).map(normalizeCard);
         currentId = data.currentId && findCard(data.currentId) ? data.currentId : (collection[0] ? collection[0].id : null);
+        customSubtypes = Array.isArray(data.customSubtypes) ? data.customSubtypes : [];
         renderAll();
         hasUnsyncedChanges = true;
         updateSyncBadge();
@@ -1565,7 +1646,7 @@
   function applyUnknownFields(data){
     driveUnknownFields = {};
     Object.keys(data).forEach(key => {
-      if (!["collection","currentId","lastEditedBy","lastEditedAt","error"].includes(key)) driveUnknownFields[key] = data[key];
+      if (!["collection","currentId","customSubtypes","lastEditedBy","lastEditedAt","error"].includes(key)) driveUnknownFields[key] = data[key];
     });
   }
 
@@ -1576,6 +1657,7 @@
       const data = await DriveAuth.fetchFullSync(drivePassword);
       collection = Array.isArray(data.collection) ? data.collection.map(normalizeCard) : [];
       currentId = data.currentId && collection.find(c => c.id === data.currentId) ? data.currentId : (collection[0] ? collection[0].id : null);
+      customSubtypes = Array.isArray(data.customSubtypes) ? data.customSubtypes : [];
       applyUnknownFields(data);
       driveLastEditedBy = data.lastEditedBy || "";
       driveLastEditedAt = data.lastEditedAt || null;
@@ -1597,6 +1679,16 @@
 
     const cloudCards = Array.isArray(cloudData.collection) ? cloudData.collection.map(normalizeCard) : [];
     const mergedById = new Map(cloudCards.map(c => [c.id, c]));
+
+    // customSubtypes is puur additief: unie op naam, case-insensitief.
+    const cloudCustomSubtypes = Array.isArray(cloudData.customSubtypes) ? cloudData.customSubtypes : [];
+    const mergedSubtypesByName = new Map(cloudCustomSubtypes.map(s => [String(s.name || "").toLowerCase(), s]));
+    for (const s of customSubtypes){
+      const key = String(s.name || "").toLowerCase();
+      if (!mergedSubtypesByName.has(key)) mergedSubtypesByName.set(key, s);
+    }
+    const mergedCustomSubtypes = Array.from(mergedSubtypesByName.values());
+
     let addedCount = 0, unchangedCount = 0, mineWonCount = 0, cloudWonCount = 0;
     for (const localCard of collection){
       const cloudVersion = mergedById.get(localCard.id);
@@ -1614,6 +1706,7 @@
     const payload = Object.assign({}, driveUnknownFields, {
       collection: merged,
       currentId: (currentId && merged.find(c => c.id === currentId)) ? currentId : (merged[0] ? merged[0].id : null),
+      customSubtypes: mergedCustomSubtypes,
       lastEditedBy: driveUsername || "(naamloos)",
       lastEditedAt: Date.now()
     });
@@ -1623,6 +1716,7 @@
       if (!res.ok || data.error){ setSyncStatus("⚠ Wegschrijven mislukt" + (data.error ? ": " + data.error : "")); return; }
       collection = merged;
       currentId = payload.currentId;
+      customSubtypes = mergedCustomSubtypes;
       driveLastEditedBy = payload.lastEditedBy;
       driveLastEditedAt = payload.lastEditedAt;
       driveBaselineEditedAt = payload.lastEditedAt;
@@ -1654,7 +1748,7 @@
       if (!confirm("Kon geen verbinding maken met Drive om op conflicten te controleren.\n\nToch proberen wegschrijven?")) return;
     }
     setSyncStatus("Bezig met wegschrijven naar Drive…");
-    const payload = Object.assign({}, driveUnknownFields, { collection, currentId, lastEditedBy: driveUsername || "(naamloos)", lastEditedAt: Date.now() });
+    const payload = Object.assign({}, driveUnknownFields, { collection, currentId, customSubtypes, lastEditedBy: driveUsername || "(naamloos)", lastEditedAt: Date.now() });
     try {
       const res = await fetch(DriveAuth.driveUrl(drivePassword), { method:"POST", headers:{"Content-Type":"text/plain;charset=utf-8"}, body: JSON.stringify(payload) });
       const data = await res.json().catch(() => ({}));
@@ -1764,6 +1858,7 @@
       drivePassword = session.password;
       collection = Array.isArray(data.collection) ? data.collection.map(normalizeCard) : [];
       currentId = data.currentId && collection.find(c => c.id === data.currentId) ? data.currentId : null;
+      customSubtypes = Array.isArray(data.customSubtypes) ? data.customSubtypes : [];
       applyUnknownFields(data);
       driveLastEditedBy = data.lastEditedBy || "";
       driveLastEditedAt = data.lastEditedAt || null;

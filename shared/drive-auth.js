@@ -420,3 +420,11 @@ const DriveAuth = (function(){
     wireLazyTabs
   };
 })();
+
+// Expliciet op window zetten: een top-level `const` in een gewoon script-tag
+// creëert GEEN property op window (enkel var/function declarations doen dat),
+// terwijl andere modules (bv. hat-avatar.js in saveToDrive()) bewust via
+// `window.DriveAuth` checken of deze module geladen is. Zonder deze regel
+// slaat die check altijd aan, ook als DriveAuth prima geladen en bruikbaar is
+// (via de gewone scope-lookup werkt `DriveAuth.iets()` toch al overal).
+window.DriveAuth = DriveAuth;

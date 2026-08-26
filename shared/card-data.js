@@ -33,6 +33,43 @@ const SUBTYPE_LIST_BY_TYPE = {
   Burden: ["Manifestation"]
 };
 
+// Vrij toegevoegde subtypes (cfr. Gamerules-specificatie.txt sectie 6):
+// SUBTYPE_LIST_BY_TYPE hierboven blijft de vaste, ingebouwde basisset. Nieuwe
+// subtypes die een ontwerper via de "+ Nieuw subtype"-knop aanmaakt, worden
+// NIET in deze const bijgeschreven (dat zou de broncode moeten wijzigen),
+// maar Drive-gesynchroniseerd bewaard als apart top-level veld
+// "customSubtypes" in wizards-cards.json — een platte array van
+// {name, type, createdBy, createdAt}. Elke module houdt zijn eigen
+// `customSubtypes`-variabele bij (net als `collection`) en geeft die hier
+// als parameter mee; dit bestand bewaart zelf geen state.
+
+// Alle ingebouwde subtype-namen, over ALLE hoofdtypes heen — nodig voor de
+// uniciteits-check (spec sectie 5: SUBTYPE_EFFECTS is een platte
+// naamruimte, dus een nieuwe naam mag nergens, ook niet bij een ander type,
+// al gebruikt zijn).
+function getAllBuiltinSubtypeNames(){
+  return Object.values(SUBTYPE_LIST_BY_TYPE).flat();
+}
+
+// Alle subtypes toegestaan voor een gegeven hoofd-type: de ingebouwde lijst
+// aangevuld met de custom subtypes die voor dat type zijn aangemaakt.
+function getAllowedSubtypes(type, customSubtypes){
+  const builtin = SUBTYPE_LIST_BY_TYPE[type] || [];
+  const custom = (customSubtypes || []).filter(s => s && s.type === type).map(s => s.name);
+  return [...builtin, ...custom];
+}
+
+// Bestaat deze naam al, ongeacht bij welk type (ingebouwd of custom)? Case-
+// insensitief, want "Beast" en "beast" zouden anders per ongeluk twee
+// verschillende, botsende subtypes lijken.
+function isSubtypeNameTaken(name, customSubtypes){
+  const lower = String(name || "").trim().toLowerCase();
+  if (!lower) return true; // lege naam is nooit geldig
+  const builtinTaken = getAllBuiltinSubtypeNames().some(n => n.toLowerCase() === lower);
+  if (builtinTaken) return true;
+  return (customSubtypes || []).some(s => s && String(s.name || "").toLowerCase() === lower);
+}
+
 // Triggers: het moment waarop een effect afgaat. Sluit aan bij wat al in de
 // arena-code als voorbeeld genoemd wordt (OnPlayed, OnExhausted).
 const TRIGGER_LIST = [
@@ -56,33 +93,90 @@ const ACTION_LIST = [
 ];
 
 // Target: wie/wat het effect raakt. "chosen" laat de speler kiezen (koppelt
-// aan de bestaande openArenaChoice()-overlay in arena.html).
+// aan de bestaande openArenaChoice()-overlay in arena.html). "opponentZone"
+// is specifiek voor Attack-abilities (isAttack:true): het doel is een ZONE
+// bij de tegenstander, niet een specifieke kaart of de Wizard rechtstreeks —
+// de verdediger kiest zelf hoe de schade opgevangen wordt (zie
+// Gamerules-specificatie.txt sectie 2e). Welke zone (Body/Mind/Soul) volgt
+// automatisch uit de zone van de aanvallende kaart, niet uit dit veld.
 const TARGET_LIST = [
   "self", "controller", "opponent",
   "opponentActiveWizard", "ownActiveWizard",
+  "opponentZone",
   "allInPlay", "allOpponentInPlay", "allOwnInPlay",
   "chosen"
 ];
 
 const RARITY_LIST = ["Common", "Uncommon", "Rare", "Signature"];
 
-function normalizeEffect(raw){
+// Kost-componenten voor ACTIVATED abilities (cfr. Gamerules-specificatie.txt
+// sectie 2f, vraag 13): een activated ability betaalt geen "trigger", maar
+// een combinatie van één of meer van deze componenten. `value` is enkel
+// relevant voor Spite/Action/Discard (hoeveel); voor ExhaustSelf/
+// SelfVulnerable wordt het genegeerd. Uitbreidbaar: nieuwe kost-types
+// toevoegen volstaat, geen wijziging elders nodig zolang de interpreter
+// (nog te bouwen) ze een-voor-een kan afhandelen.
+const COST_TYPE_LIST = ["ExhaustSelf", "Spite", "Action", "Discard", "SelfVulnerable"];
+
+function normalizeCostEntry(raw){
   raw = raw || {};
   return {
+    type: COST_TYPE_LIST.includes(raw.type) ? raw.type : "ExhaustSelf",
+    value: toNum(raw.value, 1)
+  };
+}
+
+function normalizeEffect(raw){
+  raw = raw || {};
+  // kind: expliciet veld (cfr. Gamerules-specificatie.txt, vraag 7) i.p.v.
+  // een impliciete conventie afgeleid uit trigger/cost — robuuster tegen
+  // toekomstige combinaties. Migratie-fallback voor effects van vóór dit
+  // veld bestond: had het effect al een cost, dan was het bedoeld als
+  // activated ability; anders trigger.
+  const legacyHadCost = raw.cost && (raw.cost.exhaustSelf || raw.cost.spite);
+  const kind = (raw.kind === "trigger" || raw.kind === "activated")
+    ? raw.kind
+    : (legacyHadCost ? "activated" : "trigger");
+  // costs: vervangt het oudere, vaste `cost: {spite, exhaustSelf}`-object
+  // (cfr. Gamerules-specificatie.txt sectie 2f, vraag 13) door een vrije
+  // lijst van kost-componenten, zodat combinaties (bv. exhaust + discard 1
+  // kaart) mogelijk zijn. Migratie: bestaande effects met het oude `cost`-
+  // object worden hier omgezet naar de nieuwe lijst-vorm.
+  let costs;
+  if (Array.isArray(raw.costs)){
+    costs = raw.costs.map(normalizeCostEntry);
+  } else if (raw.cost){
+    costs = [];
+    if (raw.cost.exhaustSelf) costs.push({ type: "ExhaustSelf", value: 1 });
+    if (raw.cost.spite) costs.push({ type: "Spite", value: toNum(raw.cost.spite, 1) });
+  } else {
+    costs = [];
+  }
+  return {
     id: typeof raw.id === "string" && raw.id ? raw.id : uid(),
-    trigger: TRIGGER_LIST.includes(raw.trigger) ? raw.trigger : "",
+    kind: kind,
+    // Trigger is enkel zinvol voor kind:"trigger" — voor kind:"activated"
+    // blijft dit veld leeg (een activated ability wordt door de speler
+    // geactiveerd door de costs hieronder te betalen, niet door een
+    // spelgebeurtenis). De cardbuilder-UI toont het triggerveld dan ook
+    // enkel voor kind:"trigger".
+    trigger: (kind === "trigger" && TRIGGER_LIST.includes(raw.trigger)) ? raw.trigger : "",
     action: ACTION_LIST.includes(raw.action) ? raw.action : "",
     target: TARGET_LIST.includes(raw.target) ? raw.target : "self",
     value: toNum(raw.value, 0),
+    // isAttack: markeert een activated ability specifiek als "Attack"
+    // (cfr. Gamerules-specificatie.txt 2c/2e: "activated ⊃ attack" — niet
+    // elke activated ability is een attack, maar een attack is er altijd
+    // een). Enkel een Attack volgt de zone-afhankelijke waarde/schadetype-
+    // regel en target:"opponentZone"; een gewone activated ability (bv.
+    // Mosquito) gebruikt gewoon zijn eigen vaste `value`/`target`.
+    isAttack: !!raw.isAttack,
     // Vrije, niet-gevalideerde condition-string (bv. "bodyShield == 0") —
     // bewust niet dichtgetimmerd zolang er geen condition-parser bestaat.
     condition: typeof raw.condition === "string" ? raw.condition : "",
-    // Extra kost voor geactiveerde vermogens (los van actionCost/spiteCost
-    // om de kaart te spelen). exhaustSelf dekt de "tap deze kaart"-kost.
-    cost: {
-      spite: toNum(raw.cost && raw.cost.spite, 0),
-      exhaustSelf: !!(raw.cost && raw.cost.exhaustSelf)
-    }
+    // Kost om deze activated ability te activeren (leeg voor kind:"trigger").
+    // Los van actionCost/spiteCost om de kaart zelf te CASTEN.
+    costs: kind === "activated" ? costs : []
   };
 }
 
@@ -121,6 +215,14 @@ function normalizeCard(raw){
     status: STATUS_LIST.includes(raw.status) ? raw.status : "In Design",
     actionCost: toNum(raw.actionCost, 0),
     spiteCost: toNum(raw.spiteCost, 0),
+    // Slumber: elke in-play kaart wordt geacht dit te hebben, ook zonder
+    // geprinte waarde (dan geldt Slumber 0). Bepaalt hoeveel witte Time
+    // Counters een kaart krijgt bij het exhausten, en dus na hoeveel acties
+    // van de eigenaar ze vanzelf weer ready wordt (zie spendAction in
+    // arena.html). Bij Slumber 0 gebeurt dat al bij de eerstvolgende actie
+    // na het exhausten. Bewust een apart veld i.p.v. vrije tekst in
+    // gameText, zodat het niet kan afwijken van wat de engine toepast.
+    slumber: toNum(raw.slumber, 0),
     body: raw.body === "" || raw.body === null || raw.body === undefined ? "" : toNum(raw.body, ""),
     mind: raw.mind === "" || raw.mind === null || raw.mind === undefined ? "" : toNum(raw.mind, ""),
     soul: raw.soul === "" || raw.soul === null || raw.soul === undefined ? "" : toNum(raw.soul, ""),
@@ -144,10 +246,16 @@ function normalizeCard(raw){
 
     // --- nieuw: subtypes (een kaart mag er meerdere hebben), afhankelijk
     // van (het genormaliseerde) type. Getoond op de kaart als "Type - Sub1, Sub2".
+    // Bewust NIET meer gefilterd tegen SUBTYPE_LIST_BY_TYPE: sinds vrij
+    // toegevoegde subtypes bestaan (spec sectie 6) kent normalizeCard() de
+    // customSubtypes-lijst niet (die leeft in de host-module, niet hier) —
+    // een harde validatie zou elk custom subtype dus meteen terug
+    // wegfilteren. De chip-UI is de facto al de gatekeeper van geldige
+    // waarden; hier enkel nog opschonen (geen lege/dubbele strings).
     subtypes: (() => {
-      const allowed = SUBTYPE_LIST_BY_TYPE[TYPE_LIST.includes(raw.type) ? raw.type : "Manifestation"] || [];
       const incoming = Array.isArray(raw.subtypes) ? raw.subtypes : (typeof raw.subtype === "string" && raw.subtype ? [raw.subtype] : []);
-      return incoming.filter(s => allowed.includes(s));
+      const cleaned = incoming.filter(s => typeof s === "string" && s.trim()).map(s => s.trim());
+      return Array.from(new Set(cleaned));
     })(),
 
     // --- nieuw: machine-leesbare effecten naast gameText ---

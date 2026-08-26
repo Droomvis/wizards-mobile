@@ -1,0 +1,177 @@
+TODO MOBILE — plan om editor-logica te delen tussen cardbuilder.html en Wizards_Mobile.html
+(opgesteld met Claude, 2026-08-25 — nog niet gebouwd)
+
+====================================================================
+AANLEIDING
+====================================================================
+Review van Wizards_Mobile.html t.o.v. cardbuilder.html bracht twee gaten
+aan het licht die zijn ontstaan doordat de editor-logica dubbel onderhouden
+wordt in plaats van gedeeld:
+
+1) Slumber-veld ontbreekt volledig in Wizards_Mobile.html (geen f-slumber
+   input, niet gerenderd, niet gesynchroniseerd). card-data.js kent het veld
+   overal wel (default 0), dus geen dataverlies, maar op mobiel niet
+   zichtbaar of instelbaar.
+
+2) Effecten-editor in Wizards_Mobile.html gebruikt nog het OUDE datamodel
+   (trigger/actie/target/waarde/conditie + één vast cost-object met
+   spite+exhaustSelf). Ontbreekt volledig:
+   - "Soort"-select (kind: trigger vs activated)
+   - vrije, combineerbare costs-lijst (ExhaustSelf/Spite/Action/Discard/
+     SelfVulnerable) i.p.v. het oude vaste cost-object
+   - "Dit is een Attack"-checkbox (isAttack)
+   Gevolg: een activated ability met costs[] die op desktop is aangemaakt,
+   toont op mobiel een lege/onjuiste spite/exhaust-status (mobiel leest het
+   oude cost-veld, niet costs[]). Bewerken op mobiel kan een verouderd
+   cost-object toevoegen naast de echte costs[]-data — niet direct
+   destructief, maar verwarrend en foutgevoelig.
+
+Root cause van het "maar 1 sync-knop lijkt te werken"-signaal (apart
+probleem, zie eerdere review): sw-mobile.js gebruikt een vaste
+CACHE_NAME ("wizards-mobile-shell-v1") met cache-first strategie. Bij elke
+wijziging aan Wizards_Mobile.html of shared/* moet deze naam opgehoogd
+worden, anders blijft een oudere, gecachete versie op het toestel staan.
+ACTIE (los van onderstaand plan): CACHE_NAME ophogen bij elke wijziging aan
+de mobiele shell-bestanden, en dit als vaste stap in de workflow opnemen.
+
+====================================================================
+WAAROM DIT KAN: BESTAAND PATROON HERGEBRUIKEN
+====================================================================
+card-data.js (datamodel/validatie), card-render.js (kaart tekenen),
+card-filters.js (filteren/sorteren) en drive-auth.js (login+sync) worden nu
+al door beide bestanden gedeeld. Enkel de editor-laag zelf (renderForm/
+syncFromForm/toggleGroups/subtype-editor/effecten-editor) staat nog dubbel.
+
+Gunstige uitgangspositie:
+- Element-id's zijn in beide bestanden al identiek voor bijna alle velden
+  (f-name, f-type, f-actionCost, group-subtypes, effects-list,
+  btn-add-effect, ...).
+- Functie-bodies van renderForm/syncFromForm/renderSubtypeGroup/
+  showNewSubtypeInput zijn nu al bijna woord-voor-woord gelijk tussen de
+  twee bestanden (verschil is vnl. $() vs document.getElementById()).
+
+Dit maakt een gedeeld shared/card-editor.js haalbaar zonder de twee UI's
+(accordion+bottom-sheet op mobiel vs sidebar+kolommen op desktop) te hoeven
+gelijktrekken.
+
+====================================================================
+CONTRACT TUSSEN MODULE EN HOST
+====================================================================
+shared/card-editor.js kent zelf geen collection/currentId/driveUsername/
+autosave() — dat blijft eigendom van elke host, zoals nu. Initialisatie via
+een klein adapter-object:
+
+  const editor = CardEditor.init({
+    getCard: () => findCard(currentId),
+    getCustomSubtypes: () => customSubtypes,
+    addCustomSubtype: (entry) => customSubtypes.push(entry),
+    getUsername: () => driveUsername,
+    onChange: () => { <host-specifieke preview/lijst-refresh>; autosave(); }
+  });
+
+Enige echte verschil tussen de twee hosts: welke lijst/preview ververst
+wordt in onChange (renderCollectionList vs renderSidebar). Al de rest is
+gedeeld.
+
+====================================================================
+VEREISTE: HTML AANVULLEN IN Wizards_Mobile.html (vóór extractie)
+====================================================================
+Zelfde id's/classNamen als cardbuilder.html, mobiele stijl (steppers,
+tap-maten min-height ~40-44px):
+
+- #f-slumber : stepper in group-stats-fields, naast Body/Mind/Soul
+  (icoon voorstel: 💤, zoals in cardbuilder)
+- In elke effect-row:
+  - select.ef-kind (Trigger vs Activated ability)
+  - blok .ef-costs-field met .ef-costs-list + button.btn-add-cost
+    (cost-row's met select.cost-type + input.cost-value +
+    button.btn-remove-cost)
+  - checkbox .ef-is-attack ("Dit is een Attack")
+- Mobiele CSS toevoegen voor .effect-costs-block / .cost-row / .ef-is-attack
+  (cardbuilder-CSS als basis, aangepast naar mobiele tap-maten)
+
+Dit lost de twee bovenstaande gaten al op, ONAFHANKELIJK van de refactor
+hieronder — eerst functioneel gelijktrekken, dan pas logica samenvoegen.
+
+====================================================================
+FUNCTIES DIE VERHUIZEN NAAR shared/card-editor.js
+====================================================================
+1. toggleGroups(type) — ongewijzigd, DOM-toggle o.b.v. TYPE_CONFIG
+2. renderForm(card) / syncFromForm(card) — basisvelden, kosten, stats
+   (incl. Slumber)
+3. Tags: renderTagChips, addTagToCurrentCard, removeTagFromCurrentCard,
+   populateTagSuggestions (host geeft allKnownTags() mee, want die leest
+   collection)
+4. Subtypes: renderSubtypeGroup, showNewSubtypeInput (kleinste
+   migratie-risico, al bijna identiek)
+5. Effecten: renderEffectsList, buildEffectRowEl, syncEffectsFromForm,
+   addEffect, removeEffect, addCostToEffect, removeCostFromEffect
+   (grootste stuk — hier zat de drift)
+6. Afbeelding-upload (f-image / btn-remove-image handlers) — triviaal,
+   nu al identiek
+
+WAT NIET VERHUIST (blijft per host):
+- Accordion open/dicht, bottom-sheet open/sluiten (mobile-only chrome)
+- renderPreview / renderEditorPreview
+- sidebar- / collectielijst-rendering
+- Drive-sync, autosave, decks — ongemoeid
+
+====================================================================
+VOLGORDE VAN UITVOERING
+====================================================================
+Stap 0 — Voorbereiding zonder gedragswijziging
+  HTML/CSS aanvullen in Wizards_Mobile.html (zie hierboven), nog aangestuurd
+  door de BESTAANDE mobiele functies. Lost de twee gaten al op, los van de
+  refactor.
+
+Stap 1 — Extractie: effecten
+  renderEffectsList/buildEffectRowEl/syncEffectsFromForm/cost-helpers naar
+  shared/card-editor.js, beide hosts roepen ze aan. Hoogste winst (hier zat
+  de drift).
+
+Stap 2 — Extractie: subtypes
+  renderSubtypeGroup/showNewSubtypeInput verhuizen. Kleinste risico.
+
+Stap 3 — Extractie: rest van het formulier
+  Basisvelden, tags, afbeelding.
+
+Bij elke stap:
+  - Wijziging doorvoeren in zowel "development" als "GitPub" (per
+    bestaande workflow in Architectuur.txt), dan pas commit+push.
+  - CACHE_NAME in sw-mobile.js ophogen zodat de telefoon de nieuwe versie
+    ook echt binnenhaalt.
+
+====================================================================
+TESTPLAN PER STAP
+====================================================================
+- Kaart aanmaken/bewerken op desktop → opslaan naar Drive → laden op
+  mobiel → velden moeten identiek getoond worden (incl. Slumber,
+  activated-effect met costs, isAttack).
+- Omgekeerd: aanmaken/bewerken op mobiel → Drive → controleren in
+  desktop-builder.
+- Regressietest: bestaande kaarten met het oude cost-object (vóór de
+  costs-array) nog steeds correct gemigreerd via normalizeEffect (verandert
+  niet, zit al in card-data.js).
+
+====================================================================
+RISICO'S / AANDACHTSPUNTEN
+====================================================================
+- .ef-costs-list-HTML in cardbuilder gebruikt flex-classNamen (cost-row,
+  field-group) die in mobile's CSS nog niet bestaan — toevoegen met
+  mobiele tap-maten (min-height ~40-44px), anders te klein om te raken op
+  een telefoon.
+- showNewSubtypeInput gebruikt addBtn.replaceWith(...) — werkt
+  host-onafhankelijk, geen aanpassing nodig.
+- Geen backend-wijziging nodig (Apps Script / wizards-cards.json-schema
+  blijft ongewijzigd) — dit is een puur front-end refactor.
+
+====================================================================
+STATUS
+====================================================================
+[ ] Stap 0 — HTML/CSS aanvullen in Wizards_Mobile.html (Slumber, kind,
+    costs-lijst, isAttack)
+[ ] CACHE_NAME-bump-gewoonte instellen (elke wijziging aan mobiele
+    shell-bestanden)
+[ ] Stap 1 — shared/card-editor.js: effecten
+[ ] Stap 2 — shared/card-editor.js: subtypes
+[ ] Stap 3 — shared/card-editor.js: rest van het formulier
