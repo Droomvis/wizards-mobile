@@ -287,6 +287,42 @@ toegevoegd aan de exclude-lijst van applyUnknownFields(). De subtype-rij is
 niet langer verborgen bij 0 ingebouwde subtypes (elk hoofdtype kan nu een
 custom subtype krijgen).
 
+Op 2026-08-27 vereenvoudigd: de raaf-aankondiging en het forum in
+council.html gebruikten sinds 2026-08-18/19 een "semilive"-opzet (schrijf-
+acties meteen naar Drive via saveDriveFieldsRetry, plus een live-broadcast
+over de WebSocket-relay als "heb ik iets gemist"-duwtje tussen sessies).
+Die broadcast bleek in de praktijk niet betrouwbaar genoeg te lopen, en is
+vervangen door een simpel, expliciet paar knoppen naast de forum-header:
+
+1) 💾 Opslaan: schrijft de huidige lokale raaf- en forum-staat naar Drive.
+Doet eerst een "stille" ververs-fetch (dezelfde fetch-merge-write als
+voorheen) zodat andere velden (collectie, hoeden, ...) die intussen
+elders gewijzigd zijn niet verloren gaan — enkel ravenNotice en forum
+worden effectief overschreven met de lokale staat.
+
+2) 🔄 Laden: haalt ravenNotice/forum/hats vers op van Drive en vervangt
+daarmee enkel die drie stukken lokale state. De lokaal geladen collectie
+(kaarten) wordt hier zelfs niet bijgehaald, laat staan overschreven —
+naam is dus enigszins misleidend als "volledige herlaad", dit raakt
+bewust enkel raaf/forum/hoeden.
+
+Forum-schrijfacties (subforum aanmaken/verwijderen, bericht plaatsen/
+verwijderen) muteren voortaan enkel nog de lokale driveData — niet langer
+meteen (met retry/verify) naar Drive. Pas een klik op 💾 zet dat effectief
+weg. Een klein tekstindicatortje ("● niet-opgeslagen wijzigingen") naast de
+knoppen laat zien wanneer er nog lokale wijzigingen hangen; een
+beforeunload-waarschuwing voorkomt dat die stilzwijgend verloren gaan bij
+het sluiten van het tabblad. De oude saveDriveFields/saveDriveFieldsRetry-
+helpers (het fetch-merge-write(-verify)-mechanisme) zijn geschrapt — het
+fetch-merge-write-idee zelf leeft verder, maar dan rechtstreeks inline in
+de nieuwe saveCouncilData/loadCouncilData (geen aparte, herbruikbare
+helperfuncties meer, en geen retry/verify-lus: bij een schrijffout toont
+💾 gewoon een foutmelding, de speler kan zelf opnieuw klikken). Ook de
+WebSocket-broadcast (forum-sync/raven-sync, zowel client- als server-kant
+in server.js) is volledig geschrapt. De hoeden-sync (hat-sync) blijft
+ongewijzigd live over de WebSocket lopen — die functioneerde naar behoren
+en viel dus buiten deze vereenvoudiging.
+
 Op 2026-08-24 toegevoegd: algemene online-aanwezigheid + duel-challenge in
 de Council (TO DO.txt, "herwerken Wizard Council"). Drie bestanden erbij
 betrokken: server.js (relay-server), council.html, index.html + arena.html

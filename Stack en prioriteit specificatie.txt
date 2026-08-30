@@ -1,0 +1,154 @@
+Stack- en prioriteitsmodule — specificatie & stappenplan
+=======================================================================
+Status: OPEN — nog geen enkele vraag beantwoord. Dit document legt enkel
+het skelet van het algoritme vast (uit gesprek, cfr. onderaan) en de
+vragen die daaruit volgen. Nog geen datamodel-wijziging, nog geen UI.
+
+Context (cfr. gesprek + Gamerules-specificatie.txt):
+- De beurt bestaat uit drie vaste momenten: Start, Action, End.
+- Op elk van die drie kan gereageerd worden met snelle effecten (bv.
+  Hexes, abilities zonder Action-kost).
+- Op elke gecaste kaart/geactiveerde ability kan eveneens gereageerd
+  worden met snelle effecten.
+- Dit werkt via een LIFO-stack: spelers reageren om beurten, tot beiden
+  na elkaar passen — dan resolvet het bovenste stack-item.
+- Dit is dus GEEN losstaande derde fase-machine naast de bestaande
+  effecten-module (Gamerules-specificatie.txt) — het is de motor die
+  bepaalt WANNEER een trigger/activated effect uit die module effectief
+  mag/kan afgaan. De twee documenten grijpen op elkaar in.
+- game-rules.js/card-data.js kennen vandaag geen begrip van "snelheid"
+  (mag dit tijdens andermans beurt/tijdens een prioriteitsronde) — enkel
+  kind:"trigger"/"activated". Dat is een gat dat dit traject blootlegt,
+  geen bestaand mechanisme.
+
+
+1. DOEL & SCOPE
+---------------
+Doel: het stack/prioriteit-algoritme in gewone taal volledig dichttimmeren
+— inclusief alle edge cases — VOORDAT er een datamodel-wijziging of een
+(state-machine-)editor voor gebouwd wordt. Cfr. de aanpak van de
+Gamerules-specificatie: eerst de vragen, dan pas de code, dan pas de UI.
+
+Expliciet BUITEN scope van dit document:
+- De buitenste fase-lus (Start -> Action -> End -> volgende beurt) zelf;
+  die is al simpel genoeg en niet het probleem.
+- Het bouwen van een visuele (state-machine-)editor. Dat is een apart,
+  later traject — zie sectie 4.
+- Een interpreter die dit effectief uitvoert in arena.html. Zelfde
+  volgorde-principe als de Gamerules-specificatie: eerst de regels op
+  papier, dan pas code.
+
+
+2. TERMINOLOGIE (voorlopig, ter discussie)
+---------------------------------------------
+- Stack: LIFO-lijst van "items" die wachten om te resolven.
+- Item: een fase-trigger, een gecaste kaart, een geactiveerde ability, of
+  een reactie (snel effect) die zelf ook een item is.
+- Prioriteit: het recht van een speler om op dit moment iets op de stack
+  te leggen, of te passen.
+- Passen: een speler geeft aan nu niets te doen. Prioriteit gaat naar de
+  andere speler.
+- Resolven: het bovenste stack-item voert zijn effect uit en verdwijnt
+  van de stack.
+- Snel effect: een effect dat buiten je eigen Action-fase, en als reactie
+  op andermans item, gespeeld mag worden — te onderscheiden van een
+  gewone activated ability die enkel tijdens je eigen Action-fase mag.
+- State-based check: een automatische controle (bv. de Vulnerable/
+  Confused/Forlorn-doodregel, Gamerules-specificatie.txt 2c) die niet
+  op de stack komt, maar continu/tussendoor gecontroleerd wordt.
+
+
+3. VOORLOPIG ALGORITME (skelet, uit gesprek — ELK PUNT HIERONDER IS OPEN)
+---------------------------------------------------------------------------
+1) Er komt een item op de stack (fase-trigger, cast, activatie, of een
+   resolve die zelf nieuwe triggers afvuurt).
+2) De actieve speler krijgt prioriteit: reageren (nieuw item op de stack
+   -> terug naar stap 1) of passen.
+3) Bij passen: de andere speler krijgt prioriteit, zelfde keuze.
+4) Passen beide spelers na elkaar zonder dat er tussendoor iets nieuws
+   op de stack kwam? Dan resolvet het bovenste stack-item.
+5) Stack leeg na het resolven? Dan gaat de onderliggende flow verder
+   (volgende fase, of de cast die de aanleiding was is nu ook klaar).
+   Zo niet: terug naar stap 2.
+
+Dit is een skelet, geen vastgelegde regel — zie open vragen hieronder.
+
+
+4. OPEN VRAGEN
+---------------
+1) Wie is "de actieve speler" in stap 2 — altijd degene wiens beurt het
+   is, ook als de tegenstander net iets op de stack legde? Of krijgt wie
+   net iets op de stack legde zelf eerst nog eens prioriteit (kan je
+   direct op je eigen item reageren voor de ander aan de beurt is)?
+
+2) Mag je reageren op je eigen cast/activatie? (Voor de hand liggend
+   "ja", maar staat nog nergens met zoveel woorden.)
+
+3) Wanneer lopen de state-based checks (Vulnerable/Confused/Forlorn,
+   en toekomstige gelijkaardige regels) precies? Voorstel ter discussie:
+   vlak vóór elke keer een speler prioriteit zou krijgen (stap 2/3) —
+   analoog aan hoe zo'n check in vergelijkbare stack-systemen werkt. Kan
+   een state-based check zelf iets op de stack zetten, of enkel de
+   spelstaat rechtstreeks aanpassen (bv. een kaart naar discard)?
+
+4) "Snelheid" als kaart-attribuut: welke effecten mogen als reactie
+   gespeeld worden, en welke enkel tijdens je eigen Action-fase? Is dit
+   een simpele boolean (`speed: "fast"/"normal"`) op een effect, of
+   hangt het af van het kaarttype/subtype (bv. "Hexes zijn altijd fast")?
+   Dit bepaalt een nieuw veld in card-data.js/normalizeEffect() — nog
+   niet toegevoegd, wacht op dit antwoord.
+
+5) Kosten betalen tijdens een reactie: mag een snel effect met een cost
+   die de spelstaat verandert (bv. Discard, SelfVulnerable — cfr.
+   COST_TYPE_LIST in card-data.js) betaald worden terwijl er al andere
+   dingen op de stack liggen? Zijn er kosten die daar niet bij mogen
+   (bv. Action, want je zit niet in je eigen Action-fase)?
+
+6) Volgorde bij meerdere gelijktijdige triggers: als hetzelfde item bij
+   het resolven bij BEIDE spelers een trigger afvuurt (bv. "whenever a
+   Minion deals damage" en de tegenstander heeft ook zo'n trigger), wie
+   z'n trigger komt eerst op de stack?
+
+7) Kan je passen met openstaande snelle effecten die je NIET wil spelen,
+   en later in dezelfde beurt alsnog iets spelen voor de stack leeg is?
+   M.a.w.: is "passen" enkel geldig voor dit ene moment, of sluit het je
+   uit tot de stack leeg is?
+
+8) Wat gebeurt er met een item op de stack waarvan de oorspronkelijke
+   target niet langer geldig is tegen de tijd dat het resolvet (bv. de
+   getargete kaart is al naar discard verhuisd door een ander,
+   sneller-resolvend item)? Vervalt het item stilzwijgend, of gebeurt
+   er iets anders?
+
+9) Heeft "resten" (rest, cfr. Slumber-mechanisme) een prioriteitsvenster
+   nodig, of gebeurt dat altijd buiten de stack om (rechtstreeks, zoals
+   nu al in arena.html)?
+
+
+5. NOG NIET BESLIST / EXPLICIET BUITEN SCOPE VAN DIT DOCUMENT
+--------------------------------------------------------------
+- De visuele editor voor dit systeem. Cfr. gesprek: omdat de
+  prioriteitsronde op meerdere plekken herbruikt wordt (elke fase, elke
+  cast, elke resolve), is een platte state-machine-diagram niet de juiste
+  vorm — eerder iets hiërarchisch/composabel (één herbruikbaar
+  "prioriteitsronde"-blok dat de buitenste fase-lus en cast/resolve-
+  momenten allebei aanroepen, zoals substates in een statechart). Dit
+  wordt pas een apart traject NADAT sectie 4 hierboven volledig
+  beantwoord is.
+- Het datamodel-veld voor "snelheid" (zie vraag 4) — wordt pas
+  toegevoegd aan card-data.js zodra vraag 4 beantwoord is.
+- De interpreter die dit effectief laat draaien in arena.html.
+
+
+6. STAPPENPLAN
+--------------
+Stap 1 — Open vragen (sectie 4) beantwoorden.
+Stap 2 — Terminologie (sectie 2) indien nodig bijstellen n.a.v. de
+         antwoorden.
+Stap 3 — Datamodel-impact vastleggen (o.a. het "snelheid"-veld, en of
+         state-based checks een apart mechanisme worden of hergebruiken
+         wat er al is voor Vulnerable/Confused/Forlorn).
+Stap 4 — Pas dan: vorm van de editor bepalen (sectie 5) — hiërarchisch
+         state-machine-model, welke tool, welk bestandsformaat.
+Stap 5 — Editor/tool bouwen.
+Stap 6 — Architectuur.txt bijwerken met een korte entry.
