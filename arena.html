@@ -971,12 +971,23 @@
   //     perspectief van mySeat, dus enkel relevant in netwerkmodus — in
   //     solo-modus bestuur je zelf beide spelers en is er niets te
   //     verbergen) als face-down rugkantjes i.p.v. de echte kaartfiches.
-  // autoPayCost, resolveEnabled en hideOpponentHand starten AAN. Sinds
-  // 2026-08-20 start ook enforceCastLegality AAN (punt 4) — voorheen bewust
-  // UIT als opt-in schakelaar, maar dat bleek in de praktijk net de default
-  // die je toch elke keer manueel aanvinkt.
+  //   - freeActionSpending: laat de speler die AAN ZET is meerdere
+  //     actie-kostende kaarten na elkaar casten binnen zijn eigen beurt,
+  //     zolang hij genoeg Actions/Spite heeft (checkCastLegality hieronder)
+  //     — zonder te moeten wachten tot priority op de stack terugkeert naar
+  //     hem. De stack/priority-mechaniek zelf blijft verder gewoon bestaan:
+  //     de tegenstander kan elke individuele cast nog steeds beantwoorden/
+  //     resolven, en zijn eigen priority-rechten zijn ongemoeid. UIT = het
+  //     oude gedrag: ook de actieve speler moet, net als de tegenstander,
+  //     eerst priority op de stack terugkrijgen voor hij een volgende kaart
+  //     mag casten — in de praktijk dus maar één actie-kostende kaart per
+  //     "ronde" op de stack tegelijk.
+  // autoPayCost, resolveEnabled, hideOpponentHand en freeActionSpending
+  // starten AAN. Sinds 2026-08-20 start ook enforceCastLegality AAN (punt
+  // 4) — voorheen bewust UIT als opt-in schakelaar, maar dat bleek in de
+  // praktijk net de default die je toch elke keer manueel aanvinkt.
   function freshArenaSettings(){
-    return { autoPayCost: true, enforceCastLegality: true, resolveEnabled: true, hideOpponentHand: true };
+    return { autoPayCost: true, enforceCastLegality: true, resolveEnabled: true, hideOpponentHand: true, freeActionSpending: true };
   }
 
   function ensureArenaSettings(){
@@ -1108,10 +1119,15 @@
 
   function populateDeckSelect(selectEl, currentQty){
     const prev = selectEl.value;
+    const hasImported = !!(currentQty && !decks.some(d => JSON.stringify(d.qty) === JSON.stringify(currentQty)));
     selectEl.innerHTML = '<option value="">— geen deck geselecteerd —</option>' +
       decks.map(d => `<option value="${d.id}">${escapeHtml(d.name) || "(naamloos deck)"} — ${deckCardCount(d)} kaarten</option>`).join("") +
-      (currentQty && !decks.some(d => JSON.stringify(d.qty) === JSON.stringify(currentQty)) ? '<option value="__imported__">(geïmporteerd bestand)</option>' : "");
-    if (decks.some(d => d.id === prev)) selectEl.value = prev;
+      (hasImported ? '<option value="__imported__">(geïmporteerd bestand)</option>' : "");
+    // "prev" kan ook "__imported__" zijn (net gezet door een import-handler,
+    // vóór deze her-render) — dat is geen deck-id, dus dat geval moet apart
+    // hersteld worden zolang de bijhorende optie nog bestaat (hasImported),
+    // anders valt de select terug op "geen deck geselecteerd".
+    if (decks.some(d => d.id === prev) || (prev === "__imported__" && hasImported)) selectEl.value = prev;
   }
 
   function renderArenaSetup(){
@@ -1142,7 +1158,7 @@
     if (starterRandomNote) starterRandomNote.style.display = soloMode ? "none" : "block";
 
     populateDeckSelect(document.getElementById("my-deck-select"), myPendingPick.qty);
-    if (soloMode) populateDeckSelect(document.getElementById("p2-deck-select"), null);
+    if (soloMode) populateDeckSelect(document.getElementById("p2-deck-select"), soloP2Pick.qty);
 
     // Tegenstander-paneel (enkel relevant buiten solo-modus)
     if (!soloMode){
@@ -1435,7 +1451,14 @@
       }
     } else {
       const top = arena.stack[arena.stack.length - 1];
-      if (top.priorityWith !== casterIdx){
+      // freeActionSpending (tandwiel-menu): de speler die AAN ZET is hoeft
+      // niet te wachten tot priority op de stack naar hem terugkeert om nog
+      // een kaart te casten — enkel voor die actieve speler, en enkel voor
+      // deze ene voorwaarde; de tegenstander (of de actieve speler zelf op
+      // een moment dat hij niet aan zet is, bv. als reactie) heeft nog
+      // steeds gewoon priority nodig zoals voorheen.
+      const skipPriorityCheck = arena.settings.freeActionSpending && arena.turn === casterIdx;
+      if (!skipPriorityCheck && top.priorityWith !== casterIdx){
         const activeName = arena.players[top.priorityWith] ? arena.players[top.priorityWith].name : "?";
         return { ok: false, reason: `Je hebt momenteel geen priority (die ligt bij ${activeName}) — wacht tot die Resolve klikt of zelf iets cast.` };
       }
@@ -1718,6 +1741,7 @@
 
           <div class="zoom-actions">
             ${canFile ? `
+              <button type="button" class="btn" id="zoom-hand-btn" ${zone === "hand" ? "disabled" : ""}>✋ Terug naar hand</button>
               <button type="button" class="btn" id="zoom-discard-btn" ${zone === "discard" ? "disabled" : ""}>🗃 Discard card</button>
               <button type="button" class="btn danger" id="zoom-banish-btn" ${zone === "banished" ? "disabled" : ""}>☠ Banish card</button>
             ` : `<div class="zoom-hint">Kaarten op de stack kunnen niet rechtstreeks gediscard/banished worden — sleep ze eerst naar een speler.</div>`}
@@ -1754,8 +1778,13 @@
       el.querySelector("#zoom-black-minus").addEventListener("click", () => removeCounterFromInstance(playerIdx, zone, instanceId, "black"));
     }
     if (canFile){
+      const handBtn = el.querySelector("#zoom-hand-btn");
       const discardBtn = el.querySelector("#zoom-discard-btn");
       const banishBtn = el.querySelector("#zoom-banish-btn");
+      if (zone !== "hand") handBtn.addEventListener("click", () => {
+        performCardMove(playerIdx, zone, instanceId, playerIdx, "hand");
+        closeArenaZoom();
+      });
       if (zone !== "discard") discardBtn.addEventListener("click", () => {
         performCardMove(playerIdx, zone, instanceId, playerIdx, "discard");
         closeArenaZoom();
@@ -1854,12 +1883,34 @@
       const spiteCost = parseInt(card.spiteCost, 10) || 0;
       if (actionCost) casterPlayer.counters.actions = Math.max(0, (casterPlayer.counters.actions || 0) - actionCost);
       if (spiteCost) casterPlayer.counters.spite = Math.max(0, (casterPlayer.counters.spite || 0) - spiteCost);
+      // Elke besteedde actie (actionCost) simuleert hier hetzelfde Slumber-
+      // aftikken/readyen als een klik op "Actions" (spendAction) — casten
+      // van een kaart met actionCost > 1 telt dus als evenveel acties.
+      let tickedCount = 0, readiedCount = 0;
+      for (let i = 0; i < actionCost; i++){
+        const tickResult = tickSlumberOnce(casterIdx);
+        tickedCount += tickResult.tickedCount;
+        readiedCount += tickResult.readiedCount;
+      }
       if (actionCost || spiteCost){
         const costParts = [];
         if (actionCost) costParts.push(`${actionCost}⚡`);
         if (spiteCost) costParts.push(`${spiteCost}🔥`);
-        logAction(`💸 ${casterPlayer.name} betaalt ${costParts.join(" ")} om "${card.name || "(naamloos)"}" te casten`, "pay-cost");
+        logAction(`💸 ${casterPlayer.name} betaalt ${costParts.join(" ")} om "${card.name || "(naamloos)"}" te casten` +
+          (tickedCount || readiedCount ? ` (${tickedCount} tijdteller(s) verwerkt, ${readiedCount} kaart(en) ready)` : ""), "pay-cost");
       }
+    }
+
+    // Elke cardplay verhoogt de Spite van de TEGENSTANDER van de caster met
+    // één, meteen op het moment dat de kaart op de stack gaat (niet pas bij
+    // Resolve). Zelfde opt-out als de kost-betaling hierboven (tandwiel-menu,
+    // punt 3 — autoPayCost), aangezien dit dezelfde soort automatische
+    // tellerwijziging bij het casten is.
+    if (arena.settings.autoPayCost){
+      const opponentIdx = otherPlayerIdx(casterIdx);
+      const opponentPlayer = arena.players[opponentIdx];
+      opponentPlayer.counters.spite = (opponentPlayer.counters.spite || 0) + 1;
+      logAction(`🔥 ${opponentPlayer.name} krijgt +1 Spite door het casten van "${card.name || "(naamloos)"}" (door ${arena.players[casterIdx].name})`, "spite-gain");
     }
 
     let resolveDestPlayerIdx, resolveDestZone;
@@ -2176,9 +2227,14 @@
   // niet meer aangeraakt (voorheen wel, ongeacht tapped-status — dat klopte
   // niet met Slumber: een teller heeft enkel betekenis voor een exhausted
   // kaart).
-  function spendAction(playerIdx){
+  // Verwerkt het Slumber-aftikken/readyen voor ÉÉN besteedde actie van een
+  // speler: elke getapte in-play kaart met nog een wit Time Counter erop
+  // telt er één af, een kaart zonder Time Counter (meer) wordt meteen ready.
+  // Herbruikt door zowel spendAction (klik op "Actions") als castCardToStack
+  // (elke actie die opgaat aan het casten van een Manifestation/Incantation/
+  // ... simuleert op dezelfde manier een actie, per eenheid actionCost).
+  function tickSlumberOnce(playerIdx){
     const p = arena.players[playerIdx];
-    if ((p.counters.actions || 0) <= 0) return;
     let tickedCount = 0, readiedCount = 0;
     ["inPlayBody", "inPlayMind", "inPlaySoul"].forEach(zone => {
       p[zone].forEach(ci => {
@@ -2193,6 +2249,13 @@
         }
       });
     });
+    return { tickedCount, readiedCount };
+  }
+
+  function spendAction(playerIdx){
+    const p = arena.players[playerIdx];
+    if ((p.counters.actions || 0) <= 0) return;
+    const { tickedCount, readiedCount } = tickSlumberOnce(playerIdx);
     p.counters.actions = Math.max(0, (p.counters.actions || 0) - 1);
     logAction(`⚡ ${p.name} gebruikt een actie` + (tickedCount || readiedCount ? ` (${tickedCount} tijdteller(s) verwerkt, ${readiedCount} kaart(en) ready)` : ""), "action");
     saveArena();
@@ -2516,6 +2579,7 @@
         <label><input type="checkbox" id="setting-legality" ${s.enforceCastLegality ? "checked" : ""}> Punt 4 — legaliteit afdwingen (genoeg Actions/Spite, juiste beurt/priority)</label>
         <label><input type="checkbox" id="setting-resolve" ${s.resolveEnabled ? "checked" : ""}> Resolve-knoppen op de stack toestaan</label>
         <label><input type="checkbox" id="setting-hideopphand" ${s.hideOpponentHand ? "checked" : ""}> Tegenstanders hand face-down tonen (verberg kaartinfo)</label>
+        <label><input type="checkbox" id="setting-freeaction" ${s.freeActionSpending ? "checked" : ""}> Vrij acties spenderen — meerdere actie-kaarten na elkaar casten binnen je beurt zonder op priority te wachten (uitvinken = oud gedrag: max. één kaart tegelijk op de stack per beurt)</label>
         <div class="settings-hint">Uit = die controle/knop staat helemaal stil — handig om heel gericht één ding tegelijk te testen. De face-down instelling geldt enkel in netwerkmodus (verbonden met een tegenstander); in solo-test zie je sowieso altijd beide handen.</div>
       </div>
     `;
@@ -2707,6 +2771,12 @@
         settingsPopoverEl.querySelector("#setting-resolve").addEventListener("change", (e) => {
           ensureArenaSettings();
           arena.settings.resolveEnabled = e.target.checked;
+          saveArena();
+          renderArenaBoard();
+        });
+        settingsPopoverEl.querySelector("#setting-freeaction").addEventListener("change", (e) => {
+          ensureArenaSettings();
+          arena.settings.freeActionSpending = e.target.checked;
           saveArena();
           renderArenaBoard();
         });

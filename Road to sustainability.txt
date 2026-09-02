@@ -1,0 +1,160 @@
+ROAD TO SUSTAINABILITY — stappenplan onderhoudbaarheid Wizards-codebase
+(opgesteld 2026-09-02, n.a.v. analyse van arena.html, collectie.html, draft.html en de BYOG-map)
+
+=========================================================================
+CONTEXT / AANLEIDING
+=========================================================================
+Aanleiding was de vraag of de arena.html-monoliet (155 KB, ~2500 regels JS
+in één inline <script>) opgesplitst moet worden in aparte .js-bestanden,
+mede met het oog op het BYOG-zijproject (Unsorted/BYOG: een no-code
+node-based rule builder, gamerules-builder.html + gamerules-runtime.js,
+al behoorlijk uitgebreid — sub-graphs, data-wires, loops, debug-stepping,
+graph-validatie, JS-compiler, herlaadbare rule-sets).
+
+Bevindingen samengevat:
+
+1) In arena.html zijn er duidelijk afgebakende automatiseringskandidaten:
+   - Spelregel-logica: checkCastLegality, tickSlumberOnce/spendAction,
+     permanentTakesZoneDamage/permanentRelevantStat/isPermanentVulnerable/
+     permanentStatusLabel + het dood-gevolg in addCounterToInstance.
+     Dit is precies het soort "event → conditie → state-mutatie → log"
+     dat shared/game-rules.js nu al als DEFINITIE-laag beschrijft, maar
+     bewust zonder interpreter liet — BYOG's gamerules-runtime.js is
+     feitelijk die ontbrekende interpreter.
+   - Overlay/modal-manager: openArenaChoice/closeArenaChoice/
+     ensureArenaChoiceEl/renderArenaChoiceOverlay en bijna identieke
+     drietallen voor Notice, Zoom en Pile — 4x dezelfde ~20-regelige
+     pattern (element aanmaken, open-klasse togglen, klik-buiten/Escape
+     sluiten). Puur DOM, geen speldomeinkennis nodig.
+   - Multiplayer/state-sync: mpConnect/mpDisconnect/mpOpenSocket/
+     mpBroadcastState/mpApplyRemoteState — vrij zelfstandig blok
+     (WebSocket-relay, volledige state broadcasten bij wijziging,
+     binnenkomende state toepassen).
+   - Kleine pure utils: shuffleArray, cleanQty, buildDeckInstances,
+     importDeckFromFile, freshCounters.
+   - Board-rendering (renderArenaBoard + ~15 helpers) en drag & drop
+     (startCardDrag) zijn groter en veel dieper verweven met de
+     arena-specifieke DOM/state — lagere prioriteit, hoger risico.
+
+2) collectie.html en draft.html blijken dezelfde logica als arena.html
+   ÉN als elkaar te dupliceren, telkens met de hand overgetypt:
+   - Stat-pills berekenen (typeCounts/avgCost/avgSpite → buildStatPillsHtml):
+     identiek in renderCollectionStats + renderDeckPanelStats (collectie.html)
+     én renderSidebar (draft.html) — 3x dezelfde loop.
+   - Shuffle: shuffled() in draft.html en shuffleArray() in arena.html zijn
+     woord-voor-woord hetzelfde Fisher-Yates-algoritme onder een andere naam.
+   - Deck-export/import: het {name, qty, cards}-formaat wordt in
+     collectie.html (exportDeck) en draft.html (exportDraftDeck) elk apart
+     opnieuw opgebouwd (Blob → object-URL → <a>-download → bestandsnaam-
+     sanitizen, letterlijk gedupliceerd), en arena.html (importDeckFromFile)
+     leest datzelfde formaat weer met zijn eigen qty-cleanup.
+   - CSS: de hele :root{...}-kleurenset + .btn-stijlen + stats-bar-CSS staat
+     letterlijk gekopieerd in collectie.html, draft.html (en vermoedelijk
+     arena/council/cardbuilder).
+   - wizards:collection-sync-listener (normalizeCard-remap + re-render) staat
+     ook in beide, maar is klein genoeg om geen prioriteit te zijn.
+
+   Belangrijk verschil met arena.html: deze duplicatie zit in PURE,
+   staatloze logica (geen koppeling aan een grote mutable globale state),
+   dus dedup hier is aanzienlijk goedkoper en veiliger dan in arena.html.
+
+=========================================================================
+BEOORDELING — wat is de beste eerste stap?
+=========================================================================
+NIET meteen arena.html in stukken hakken. Twee redenen:
+
+1) Slechtere risico/opbrengst-verhouding daar: arena's automatismen zitten
+   vast aan de globale `arena`-state en saveArena()/renderArenaBoard()-
+   aanroepen. Dat nu al isoleren in gewone .js-bestanden is mogelijk dubbel
+   werk als later alsnog voor BYOG gekozen wordt voor diezelfde regels.
+2) De cross-module duplicatie (stat-pills/shuffle/deck-export/CSS) is nu al
+   volledig ontkoppeld van die vraag, kost weinig tijd, en heeft direct
+   effect: een bug in de stat-berekening moet nu op 3 plekken gefixt worden,
+   na dedup nog maar op 1.
+
+Volgorde: eerst de goedkope/veilige/breed-gedragen duplicatie wegwerken →
+dan de architectuurkeuze voor de regel-laag maken (gewone JS vs.
+BYOG-graph) → dan pas het duurdere, risicovollere werk in arena.html zelf.
+
+=========================================================================
+STAPPENPLAN
+=========================================================================
+
+FASE 0 — Vangnet (voorwaarde, geen refactor zelf)
+--------------------------------------------------
+Geen volledige testsuite nodig voor een project van deze omvang, maar wel
+een kort, vast "smoke-test"-lijstje dat na ELKE wijziging aan shared/*.js
+afgelopen wordt (bv. "open collectie, draft, arena, cardbuilder, check dat
+stats/shuffle/export nog kloppen"). Nodig omdat dedup-werk de blast radius
+van een foutje vergroot: een fix/bug in een gedeeld bestand raakt meteen
+meerdere modules.
+
+FASE 1 — Cross-module dedup van pure utilities (hoogste opbrengst, laagste risico)
+------------------------------------------------------------------------------
+Kan volledig los van elke architectuurkeuze gedaan worden:
+  a) computeCardStats(cards) → toevoegen aan shared/card-filters.js (naast
+     de bestaande buildStatPillsHtml). Vervangt de 3x gedupliceerde
+     typeCounts/avgCost/avgSpite-loop (collectie ×2, draft ×1).
+  b) Eén shuffle-functie, één naam, één plek (bv. shared/card-data.js).
+     Arena (shuffleArray) en draft (shuffled) laten verwijzen naar dezelfde.
+  c) Deck-export/import bundelen in een gedeeld bestand:
+     - buildDeckExportPayload(deck, collection)
+     - downloadJson(payload, filename)
+     - parseDeckImportPayload(json) (incl. qty-cleanup)
+     Gebruikt door collectie.html, draft.html én arena.html.
+  d) (Bonus, geen JS maar zelfde principe) shared/theme.css met de
+     :root-variabelen + .btn-basisstijlen, ter vervanging van de
+     copy-paste in elke module se <style>-blok.
+
+FASE 2 — Architectuurbeslissing voor de regel-laag (denkwerk, nog geen refactor)
+---------------------------------------------------------------------------------
+Vóór er aan arena's checkCastLegality/tickSlumberOnce/permanent-damage-
+logica gesleuteld wordt: expliciet kiezen tussen
+  (a) een gewoon shared/game-mechanics.js met pure functies die expliciet
+      state meekrijgen als argument, of
+  (b) die logica als BYOG-graphs laten draaien via gamerules-runtime.js,
+      ingeladen in arena.html — de interpreter waar game-rules.js nu al op
+      wacht (zie scope-notitie bovenaan dat bestand).
+Aanpak: kleine spike — bouw slumber-tick (de eenvoudigste van de drie) één
+keer als BYOG-graph en roep 'm aan vanuit een test-pagina, om de ergonomie
+(debugbaarheid, of custom-code-nodes toch gaan domineren) te voelen vóór
+het besluit voor alle drie doorgetrokken wordt.
+Let op multiplayer-caveat uit de BYOG-roadmap (punt 6): de engine zelf is
+niet netwerk-bewust, MAAR arena.html broadcast toch al de volledige state
+na elke wijziging (mpBroadcastState), dus "enkel de client die de actie
+deed rekent, de rest ontvangt de resulterende state" werkt al met de
+bestaande architectuur — geen extra host/authority-mechanisme nodig.
+
+FASE 3 — UI-automatismen in arena.html extraheren (onafhankelijk van Fase 2)
+-------------------------------------------------------------------------------
+Kan sowieso, ongeacht de Fase 2-uitkomst:
+  a) shared/overlay.js: één generieke modal/overlay-fabriek ter vervanging
+     van de 4x bijna-identieke choice/notice/zoom/pile-overlaypatronen.
+  b) Gedeelde websocket-sync-helper voor het connect/reconnect/broadcast/
+     apply-remote-state-patroon — puur mechaniek, geen speldomeinkennis.
+     Mogelijk later ook bruikbaar voor council.html's relay-gebruik, ook al
+     verschilt het protocol (connect/reconnect/backoff-vorm is gelijkaardig).
+
+FASE 4 — De spelregel-laag zelf extraheren, volgens de Fase 2-keuze
+-----------------------------------------------------------------------
+checkCastLegality, tickSlumberOnce en de permanent-damage/dood-regel
+daadwerkelijk verplaatsen — naar plain JS of naar een BYOG-graph,
+afhankelijk van de spike-ervaring uit Fase 2. Fase 0's vangnet is hier het
+hardst nodig: regelbugs zijn makkelijk over het hoofd te zien tijdens het
+gewoon spelen/testen.
+
+FASE 5 — Grotere brokken (optioneel, alleen als het echt gaat wringen)
+--------------------------------------------------------------------------
+Board-rendering (renderArenaBoard + helpers) en drag & drop (startCardDrag)
+opsplitsen: groter, risicovoller qua omvang en verwevenheid. Enkel de
+moeite waard zodra er toch al iets in aangeraakt moet worden — bv. het
+Flying-keyword (nog niet gebouwd, cfr. Gamerules-specificatie.txt sectie 2e),
+dat sowieso de drag&drop-targetinglogica raakt.
+
+=========================================================================
+PRAKTISCH AANDACHTSPUNT
+=========================================================================
+Elke wijziging aan shared/*.js moet, volgens de bestaande workflow
+(Architectuur.txt, mapstructuur-sectie), ook overgekopieerd worden naar de
+GitPub-map vóór commit+push. Dat wordt met deze dedup-slag belangrijker,
+want er komen meer modules te hangen aan diezelfde gedeelde bestanden.

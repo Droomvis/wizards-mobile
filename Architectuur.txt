@@ -69,14 +69,19 @@ telefoon geïnstalleerd kan worden.
 Mapstructuur (sinds 2026-08-20): de oude "Modulair"-map heet nu "development"
 — dat blijft de werkmap waar alles bewerkt wordt (ikzelf werk ook in deze map).
 Daarnaast, als zussen van "development" (dus rechtstreeks in Wizards\):
-- "GitPub": bevat KOPIEËN van enkel de bestanden die naar GitHub Pages gaan
-  (index.html + modules + Wizards_Mobile.html + manifest.webmanifest +
-  sw-mobile.js + icons/ + shared/ + Architectuur.txt). GitHub Desktop wordt
-  aan DEZE map gekoppeld, niet aan "development" — zo blijven de zip's,
-  "Early Access Automation" en andere niet-te-hosten spullen gegarandeerd
-  buiten de publieke repo, zonder een .gitignore te moeten onderhouden.
+- "GitWiz" (voorheen "GitPub" genoemd in een eerdere versie van deze nota):
+  bevat KOPIEËN van enkel de bestanden die naar GitHub Pages gaan (index.html
+  + modules + Wizards_Mobile.html + manifest.webmanifest + sw-mobile.js +
+  icons/ + shared/ + Architectuur.txt). GitHub Desktop wordt aan DEZE map
+  gekoppeld, niet aan "development" — zo blijven de zip's, "Early Access
+  Automation" en andere niet-te-hosten spullen gegarandeerd buiten de
+  publieke repo, zonder een .gitignore te moeten onderhouden.
   Na elke wijziging in "development" die live moet: het aangepaste bestand
-  overkopiëren naar dezelfde plek in "GitPub", dan pas commit+push.
+  overkopiëren naar dezelfde plek in "GitWiz", dan pas commit+push. Dit
+  overkopiëren + commit+push doet de projecteigenaar zelf handmatig — een
+  AI-assistent die in "development" bewerkt (bv. via de filesystem-MCP-
+  toegang, zie Wizards-readme.txt) copieert dus NIET automatisch mee naar
+  GitWiz of commit/pusht niets, tenzij daar expliciet om gevraagd wordt.
 - "Elders gehost": (verplaatst uit development) bevat de losstaande
   arena-server-code (package.json, server.js) die apart via de
   Droomvis/Wizards_Arena-repo op GitHub + Render draait — zie hieronder.
@@ -375,3 +380,21 @@ eigen opgeslagen instelling, zodat beide spelers gegarandeerd op dezelfde
 relay-server landen ook al hebben ze elk een ander adres ingesteld. Buiten
 de shell geopend (window.self === window.top) toont council.html enkel de
 roomcode als tekst, geen automatische doorschakeling mogelijk.
+
+Op 2026-09-02 toegevoegd: nieuwe optie "Vrij acties spenderen" in het
+tandwiel/test-instellingen-menu'tje van arena.html (arena.settings.
+freeActionSpending, standaard AAN). Speelt in op het testen van de
+action-economie: voorheen moest de speler die AAN ZET is, na het casten
+van een actie-kostende kaart, altijd eerst weer priority op de stack
+terugkrijgen voor hij een volgende kaart mocht casten (checkCastLegality)
+— in de praktijk dus effectief maar één kaart tegelijk op de stack vanuit
+de eigen kant, ook al had de speler nog voldoende Actions/Spite over. Met
+deze optie AAN mag de actieve speler binnen zijn eigen beurt gewoon
+meerdere kaarten na elkaar casten zolang hij de kost kan betalen; enkel
+voor de caster-op-eigen-beurt wordt de priority-check overgeslagen, de
+stack/priority-mechaniek zelf (en dus de mogelijkheid voor de tegenstander
+om elke cast individueel te beantwoorden/resolven) blijft ongewijzigd
+bestaan. UIT = het oude gedrag terug. Bestaande opgeslagen arena's krijgen
+de nieuwe sleutel automatisch aangevuld op AAN via het bestaande
+ensureArenaSettings-additief-mechanisme (zelfde principe als bij
+autoPayCost/enforceCastLegality/resolveEnabled/hideOpponentHand).
