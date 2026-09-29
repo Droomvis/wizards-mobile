@@ -7,54 +7,8 @@
 <link rel="stylesheet" href="shared/login-overlay.css">
 <link rel="stylesheet" href="shared/card-render.css">
 <link rel="stylesheet" href="shared/hat-avatar.css">
+<link rel="stylesheet" href="shared/theme.css">
 <style>
-  :root{
-    --bg: #15121c;
-    --bg-vignette: radial-gradient(ellipse at 50% -10%, #241d33 0%, #15121c 55%);
-    --panel: #1e1a29;
-    --panel-2: #241f33;
-    --border: #362c49;
-    --border-soft: #2a2338;
-    --ink-light: #d9d2e8;
-    --ink-muted: #9788b3;
-    --ink-dim: #6f6288;
-    --gold: #c9a24b;
-    --gold-soft: #e2c583;
-    --parchment: #efe6d1;
-    --parchment-dark: #e2d5b5;
-    --parchment-ink: #2c2318;
-    --parchment-chip: #b7a578;
-    --parchment-chip-border: #8f7d4f;
-
-    --c-wizard: #3d5a80;
-    --c-manifestation: #3f6b4a;
-    --c-incantation: #9c3b4f;
-    --c-hex: #5b4b8a;
-    --c-destiny: #b8933a;
-    --c-burden: #5c4a3a;
-
-    --t-fire: #c1462b;
-    --t-earth: #6b5636;
-    --t-water: #2f6f8f;
-    --t-sky: #6fa8c9;
-    --t-shadow: #4a3a5c;
-    --t-light: #b9a666;
-
-    --font-display: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
-    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    --font-mono: 'SF Mono', Consolas, Monaco, monospace;
-  }
-
-  *{ box-sizing: border-box; }
-  html,body{ height:100%; }
-  body{
-    margin:0;
-    background: var(--bg-vignette);
-    color: var(--ink-light);
-    font-family: var(--font-ui);
-    min-height:100vh;
-  }
-
   #collection-controls{
     display:flex; gap:10px; flex-wrap:wrap; align-items:center;
     padding:16px 24px; border-bottom:1px solid var(--border); background: var(--panel);
@@ -95,21 +49,6 @@
   #drive-bar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:9px 24px; border-bottom:1px solid var(--border); background:#191423; }
 
   /* ---------- Knoppen (gedeeld basispatroon, elke module definieert dit zelf) ---------- */
-  .btn{
-    font-family: var(--font-ui);
-    font-size:13px;
-    background: var(--panel-2);
-    color: var(--ink-light);
-    border:1px solid var(--border);
-    padding:8px 14px;
-    border-radius:5px;
-    cursor:pointer;
-    transition: border-color .15s, background .15s;
-    white-space:nowrap;
-  }
-  .btn:hover{ border-color: var(--gold); background:#2a2338; }
-  .btn.primary{ background: linear-gradient(180deg,#2f2743,#251f38); border-color: var(--gold); color: var(--gold-soft); }
-  .btn.primary:hover{ background:#352c4b; }
   .btn.danger:hover{ border-color:#a1364a; color:#e79aaa; }
   .btn.btn-subtle{ font-size:11px; padding:5px 8px; color: var(--ink-dim); opacity:0.75; }
   .btn.btn-subtle:hover{ opacity:1; }
@@ -359,23 +298,8 @@
     const wrap = document.getElementById("collection-stats");
     if (collection.length === 0){ wrap.innerHTML = ""; return; }
 
-    const typeCounts = {};
-    TYPE_LIST.forEach(t => typeCounts[t] = 0);
-    let costSum = 0, costCount = 0, spiteSum = 0, spiteCount = 0;
-
-    collection.forEach(c => {
-      if (typeCounts[c.type] !== undefined) typeCounts[c.type]++;
-      const cfg = TYPE_CONFIG[c.type];
-      if (cfg && cfg.cost){
-        costSum += c.actionCost || 0; costCount++;
-        spiteSum += c.spiteCost || 0; spiteCount++;
-      }
-    });
-
-    const avgCost = costCount ? (costSum / costCount).toFixed(1) : "—";
-    const avgSpite = spiteCount ? (spiteSum / spiteCount).toFixed(1) : "—";
-
-    wrap.innerHTML = buildStatPillsHtml(collection.length, typeCounts, avgCost, avgSpite);
+    const { total, typeCounts, avgCost, avgSpite } = computeCardStats(collection.map(card => ({ card })));
+    wrap.innerHTML = buildStatPillsHtml(total, typeCounts, avgCost, avgSpite);
   }
 
   function renderCollectionView(){
@@ -524,20 +448,8 @@
   }
 
   function exportDeck(deck){
-    const cards = Object.entries(deck.qty || {})
-      .filter(([, qty]) => qty > 0)
-      .map(([cardId, qty]) => {
-        const card = findCard(cardId);
-        return { id: cardId, name: card ? card.name : null, qty };
-      });
-    const payload = { name: deck.name, qty: deck.qty || {}, cards };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = (deck.name || "deck").replace(/[^a-z0-9\-_]/gi, "_") + ".json";
-    a.click();
-    URL.revokeObjectURL(url);
+    const payload = buildDeckExportPayload(deck, collection);
+    downloadJson(payload, deck.name || "deck");
   }
 
   function importDeckFromFile(file){
@@ -547,18 +459,8 @@
       try { data = JSON.parse(ev.target.result); }
       catch (e) { alert("Kon dit bestand niet lezen. Is het een geldig deck-JSON-bestand?"); return; }
 
-      const qty = (data && typeof data.qty === "object" && data.qty) ? data.qty : {};
-      const cleanQty = {};
-      Object.entries(qty).forEach(([cardId, n]) => {
-        const num = Math.max(0, parseInt(n) || 0);
-        if (num > 0) cleanQty[cardId] = num;
-      });
-
-      const deck = {
-        id: uid(),
-        name: (data && typeof data.name === "string" && data.name.trim()) ? data.name.trim() : "Geïmporteerd deck",
-        qty: cleanQty
-      };
+      const { name, qty } = parseDeckImportPayload(data);
+      const deck = { id: uid(), name, qty };
       decks.push(deck);
       activeDeckId = deck.id;
       saveDecks();
@@ -610,29 +512,21 @@
 
   function renderDeckPanelStats(deck){
     const wrap = document.getElementById("deck-panel-stats");
-    const total = deckCardCount(deck);
-    if (total === 0){ wrap.innerHTML = ""; return; }
+    const totalQty = deckCardCount(deck);
+    if (totalQty === 0){ wrap.innerHTML = ""; return; }
 
-    const typeCounts = {};
-    TYPE_LIST.forEach(t => typeCounts[t] = 0);
-    let costSum = 0, costCount = 0, spiteSum = 0, spiteCount = 0;
+    const items = Object.entries(deck.qty || {})
+      .filter(([, qty]) => qty > 0)
+      .map(([cardId, qty]) => ({ card: findCard(cardId), qty }))
+      .filter(({ card }) => card);
 
-    Object.entries(deck.qty || {}).forEach(([cardId, qty]) => {
-      if (!qty) return;
-      const card = findCard(cardId);
-      if (!card) return;
-      if (typeCounts[card.type] !== undefined) typeCounts[card.type] += qty;
-      const cfg = TYPE_CONFIG[card.type];
-      if (cfg && cfg.cost){
-        costSum += (card.actionCost || 0) * qty; costCount += qty;
-        spiteSum += (card.spiteCost || 0) * qty; spiteCount += qty;
-      }
-    });
-
-    const avgCost = costCount ? (costSum / costCount).toFixed(1) : "—";
-    const avgSpite = spiteCount ? (spiteSum / spiteCount).toFixed(1) : "—";
-
-    wrap.innerHTML = buildStatPillsHtml(total, typeCounts, avgCost, avgSpite);
+    // totalQty (deckCardCount) telt ook qty-entries voor kaarten die niet
+    // meer in de collectie zitten mee (bv. een ondertussen verwijderde
+    // kaart) — bewust gebruikt voor de weergegeven totaalpil, net als
+    // vóór deze dedup, ook al doet computeCardStats() dat zelf niet omdat
+    // die enkel bestaande kaarten in `items` ziet.
+    const { typeCounts, avgCost, avgSpite } = computeCardStats(items);
+    wrap.innerHTML = buildStatPillsHtml(totalQty, typeCounts, avgCost, avgSpite);
   }
 
   function renderDeckPanelList(deck){

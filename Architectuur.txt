@@ -398,3 +398,107 @@ bestaan. UIT = het oude gedrag terug. Bestaande opgeslagen arena's krijgen
 de nieuwe sleutel automatisch aangevuld op AAN via het bestaande
 ensureArenaSettings-additief-mechanisme (zelfde principe als bij
 autoPayCost/enforceCastLegality/resolveEnabled/hideOpponentHand).
+
+Op 2026-09-03 uitgevoerd: cross-module dedup van pure utilities (Road to
+sustainability.txt, Fase 1 — volledige aanleiding/redenering staat daar,
+hier enkel de concrete architectuur-impact). Vier gedeelde bestanden kregen
+nieuwe/uitgebreide functies ter vervanging van code die tot dan met de hand
+in meerdere modules overgetypt stond:
+
+1) shared/card-filters.js: computeCardStats(items) toegevoegd (naast de
+al bestaande buildStatPillsHtml). Vervangt de 3x gedupliceerde typeCounts/
+avgCost/avgSpite-berekening in collectie.html (renderCollectionStats +
+renderDeckPanelStats) en draft.html (renderSidebar) — die drie roepen nu
+allemaal dezelfde functie aan. `items` is een array van {card, qty}
+(qty optioneel) zodat zowel een platte kaartenlijst als een deck-qty-map
+erdoor kunnen.
+
+2) shared/card-data.js: shuffleArray(arr) (in-place) en shuffled(arr)
+(niet-destructieve wrapper) toegevoegd — vervangen de woord-voor-woord
+identieke Fisher-Yates-implementaties die voorheen apart in arena.html
+(shuffleArray) en draft.html (onder de naam shuffled) stonden.
+
+3) shared/card-data.js: buildDeckExportPayload(deck, collection),
+downloadJson(payload, filename) en parseDeckImportPayload(json) toegevoegd.
+Het {name, qty, cards}-deck-bestandsformaat (zie de draft.html- en
+collectie.html-beschrijvingen hierboven) werd voorheen apart opnieuw
+opgebouwd/ingelezen in collectie.html (exportDeck/importDeckFromFile),
+draft.html (exportDraftDeck) en arena.html (importDeckFromFile, met een
+eigen cleanQty()) — alle drie gebruiken nu deze gedeelde functies.
+
+4) shared/theme.css (nieuw bestand): de :root-kleurenset en de kern-
+knopstijlen (.btn/.btn:hover/.btn.primary/.btn.primary:hover), geverifieerd
+byte-identiek teruggevonden in collectie.html, draft.html, arena.html,
+cardbuilder.html én council.html — staan nu één keer hier. Elke module
+linkt dit bestand naast zijn andere shared/*.css-bestanden en houdt enkel
+nog zijn eigen varianten lokaal (bv. arena's extra --stat-body/mind/soul-
+kleuren, council's extra body{display:flex;...}).
+
+Op een niet precies gelogd moment vóór 2026-09-05 (bij hervatting van een
+afgebroken sessie teruggevonden in de code, zie Road to sustainability.txt
+"FASE 3a + 3b BLIJKEN AL AFGEROND") toegevoegd: twee nieuwe gedeelde UI-/
+mechaniek-modules, ter vervanging van vier bijna-identieke overlay-patronen
+en een eigen WebSocket-verbindingsopzet in arena.html:
+
+1) shared/overlay.js: generieke createOverlayManager-fabriek (open/close/
+render/isOpen/getState-methodes, klik-buiten + Escape sluit de overlay,
+een renderContent-callback levert de speldomein-specifieke inhoud). De 4
+bijna-identieke ~20-regelige patronen in arena.html (arenaChoiceOverlay,
+arenaNoticeOverlay, arenaZoomOverlay, arenaPileOverlay — zoom/choice/
+notice/pile-popups) draaien er nu allemaal op.
+
+2) shared/ws-sync.js: generieke createWsSync-helper (connect/disconnect/
+send/isConnected, automatische reconnect met backoff bij een onbedoelde
+disconnect). arena.html se mpConnect/mpDisconnect/mpBroadcastState/
+mpApplyRemoteState gebruiken nu een createWsSync-instantie (mpSync) i.p.v.
+de eigen mpOpenSocket-implementatie. Bewust NIET hergebruikt voor
+council.html se relay-verbinding (ander berichtenprotocol erbovenop) —
+enkel het onderliggende connect/reconnect-stuk zou daar later herbruikbaar
+kunnen zijn, nog niet opgepakt.
+
+Op 2026-09-05 toegevoegd: shared/game-mechanics.js (nieuw bestand, Road to
+sustainability.txt Fase 4 — de spelregel-laag zelf extraheren uit
+arena.html). Voorafgaand aan deze verhuizing was in Fase 2 een architectuur-
+spike gedaan (Slumber-tick eenmalig nagebouwd als BYOG-graph, in
+Unsorted/BYOG/spike-fase2-slumbertick/) waaruit bleek dat gewone plain-JS-
+functies voor dit soort regels minder overhead geven dan BYOG-graphs; die
+keuze is hiermee doorgetrokken voor alle drie de kandidaten uit de Fase 2-
+analyse:
+
+1) checkCastLegality(state, casterIdx, card): verplaatst uit arena.html,
+nu een pure functie die { settings, stack, turn, players } expliciet als
+eerste argument krijgt i.p.v. de globale arena-variabele te lezen. In
+arena.html blijft een dun wrapper-functietje, checkCastLegalityForArena
+(casterIdx, ci), dat ensureArenaSettings() aanroept, de kaart opzoekt
+(findCard) en de arena-state uitpakt vóór de gedeelde functie aan te
+roepen — dat stukje is arena-specifiek (globals arena/findCard) en hoort
+dus niet in de gedeelde module.
+
+2) tickSlumberOnce(player): verplaatst uit arena.html, krijgt nu het
+player-object rechtstreeks mee i.p.v. een playerIdx + de globale arena te
+lezen. Nog steeds herbruikt door zowel spendAction (klik op "Actions") als
+castCardToStack (elke actie die opgaat aan het casten van een
+Manifestation/Incantation/... simuleert op dezelfde manier een actie, per
+eenheid actionCost) — beide blijven in arena.html.
+
+3) De Manifestation/Destiny permanent-schade/dood-regel (cfr.
+Gamerules-specificatie.txt sectie 2c, oorspronkelijk toegevoegd op
+2026-08-23 — zie hierboven): permanentTakesZoneDamage/permanentRelevantStat/
+isPermanentVulnerable/permanentStatusLabel + de PERMANENT_DAMAGE_LABELS/
+PERMANENT_DAMAGE_STATKEY-lookup-tabellen, ongewijzigd verplaatst (waren al
+voldoende puur — kregen card/zone/counters al als argument mee).
+
+Daarnaast, zelfde datum: freshCounters() (de {white, black}-tellervorm voor
+een kaart-instantie) verplaatst van arena.html naar shared/card-data.js.
+Stond voorheen enkel lokaal in arena.html; tickSlumberOnce in het nieuwe
+shared/game-mechanics.js had diezelfde vorm nodig maar kon de IIFE-scoped
+versie in arena.html niet aanroepen. Nu dus één plek die de vorm kent;
+arena.html se talrijke bestaande aanroepen (freshCounters() zonder
+argumenten) blijven ongewijzigd werken via de nieuwe globale versie.
+
+shared/game-mechanics.js wordt geladen na shared/card-data.js en vóór
+shared/card-render.js (zelfde volgorde-logica als shared/game-rules.js
+ernaast) — al maakt de exacte volgorde t.o.v. card-render.js in de
+praktijk niet uit, want TYPE_CONFIG (uit card-render.js, gebruikt door
+checkCastLegality) wordt pas gelezen op het moment dat de functie
+AANGEROEPEN wordt, niet bij het laden van het bestand zelf.

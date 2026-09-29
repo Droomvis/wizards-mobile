@@ -7,73 +7,19 @@
 <link rel="stylesheet" href="shared/login-overlay.css">
 <link rel="stylesheet" href="shared/card-render.css">
 <link rel="stylesheet" href="shared/hat-avatar.css">
+<link rel="stylesheet" href="shared/theme.css">
 <style>
+  /* arena.html-specifieke kleurvariabelen, boven op de gedeelde set in
+     shared/theme.css (die geen enkele andere module nodig heeft). */
   :root{
-    --bg: #15121c;
-    --bg-vignette: radial-gradient(ellipse at 50% -10%, #241d33 0%, #15121c 55%);
-    --panel: #1e1a29;
-    --panel-2: #241f33;
-    --border: #362c49;
-    --border-soft: #2a2338;
-    --ink-light: #d9d2e8;
-    --ink-muted: #9788b3;
-    --ink-dim: #6f6288;
-    --gold: #c9a24b;
-    --gold-soft: #e2c583;
-    --parchment: #efe6d1;
-    --parchment-dark: #e2d5b5;
-    --parchment-ink: #2c2318;
-    --parchment-chip: #b7a578;
-    --parchment-chip-border: #8f7d4f;
-
-    --c-wizard: #3d5a80;
-    --c-manifestation: #3f6b4a;
-    --c-incantation: #9c3b4f;
-    --c-hex: #5b4b8a;
-    --c-destiny: #b8933a;
-    --c-burden: #5c4a3a;
-
     --stat-body: #8a3b3b;
     --stat-mind: #3b5f8a;
     --stat-soul: #6a4a8f;
-
-    --t-fire: #c1462b;
-    --t-earth: #6b5636;
-    --t-water: #2f6f8f;
-    --t-sky: #6fa8c9;
-    --t-shadow: #4a3a5c;
-    --t-light: #b9a666;
-
-    --font-display: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
-    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    --font-mono: 'SF Mono', Consolas, Monaco, monospace;
   }
 
-  *{ box-sizing: border-box; }
-  html,body{ height:100%; }
-  body{
-    margin:0;
-    background: var(--bg-vignette);
-    color: var(--ink-light);
-    font-family: var(--font-ui);
-    min-height:100vh;
-  }
-
-  .btn{
-    font-family: var(--font-ui);
-    font-size:13px;
-    background: var(--panel-2);
-    color: var(--ink-light);
-    border:1px solid var(--border);
-    padding:8px 14px;
-    border-radius:5px;
-    cursor:pointer;
-    transition: border-color .15s, background .15s;
-    white-space:nowrap;
-  }
-  .btn:hover{ border-color: var(--gold); background:#2a2338; }
-  .btn.primary{ background: linear-gradient(180deg,#2f2743,#251f38); border-color: var(--gold); color: var(--gold-soft); }
-  .btn.primary:hover{ background:#352c4b; }
+  /* ---------- Knoppen (basispatroon .btn/.btn:hover/.btn.primary zit in
+     shared/theme.css — hier enkel nog de varianten die arena.html apart
+     nodig heeft) ---------- */
   .btn.danger:hover{ border-color:#a1364a; color:#e79aaa; }
   .btn.btn-subtle{ font-size:11.5px; padding:6px 10px; color: var(--ink-dim); opacity:0.75; }
   .btn.btn-subtle:hover{ opacity:1; }
@@ -864,8 +810,11 @@
   </div>
 </div>
 
+<script src="shared/overlay.js"></script>
+<script src="shared/ws-sync.js"></script>
 <script src="shared/card-data.js"></script>
 <script src="shared/game-rules.js"></script>
+<script src="shared/game-mechanics.js"></script>
 <script src="shared/card-render.js"></script>
 <script src="shared/hat-avatar.js"></script>
 <script src="shared/drive-auth.js"></script>
@@ -935,13 +884,8 @@
     return collection.find(c => c.id === id) || null;
   }
 
-  function shuffleArray(arr){
-    for (let i = arr.length - 1; i > 0; i--){
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
-  }
+  // shuffleArray() komt sinds Fase 1b (Road to sustainability) uit shared/
+  // card-data.js — schudt in-place, zoals hier overal al werd verwacht.
 
   // Kaart-qty-map ({cardId: aantal}) -> array van losse kaart-instanties,
   // nog niet geschud. Wordt gebruikt voor elk speler-deck, ongeacht of dat
@@ -956,7 +900,10 @@
     return list;
   }
 
-  function freshCounters(){ return { white: 0, black: 0 }; }
+  // freshCounters() komt sinds Fase 4-vervolg (Road to sustainability,
+  // 2026-09-05) uit shared/card-data.js — stond voorheen hier lokaal, maar
+  // shared/game-mechanics.js (tickSlumberOnce) had dezelfde vorm nodig en
+  // kon deze IIFE-scoped versie niet aanroepen.
 
   // Test-instellingen (arena.settings) — gelden voor de hele match, niet per
   // speler, en zijn bedoeld om tijdens het testen heel gericht een bepaald
@@ -1036,24 +983,16 @@
     return p;
   }
 
-  function cleanQty(rawQty){
-    const out = {};
-    Object.entries(rawQty || {}).forEach(([cardId, n]) => {
-      const num = Math.max(0, parseInt(n) || 0);
-      if (num > 0) out[cardId] = num;
-    });
-    return out;
-  }
-
   function importDeckFromFile(file, cb){
     const reader = new FileReader();
     reader.onload = (ev) => {
       let data;
       try { data = JSON.parse(ev.target.result); }
       catch (e) { alert("Kon dit bestand niet lezen. Is het een geldig deck-JSON-bestand?"); return; }
-      const qty = cleanQty(data && data.qty);
-      const name = (data && typeof data.name === "string" && data.name.trim()) ? data.name.trim() : "Geïmporteerd deck";
-      cb({ name, qty });
+      // parseDeckImportPayload() komt sinds Fase 1c (Road to sustainability)
+      // uit shared/card-data.js — was hier eerder de lokale cleanQty()
+      // plus dezelfde name-fallback als collectie.html's importDeckFromFile.
+      cb(parseDeckImportPayload(data));
     };
     reader.readAsText(file);
   }
@@ -1084,7 +1023,7 @@
     // roomCode: welke room deze (setup- of board-)stand claimt te zijn.
     // Cruciaal om te kunnen detecteren of een lokaal gecachete `arena`
     // (autosave) nog wel bij de room hoort die we NU joinen — zie de
-    // vergelijking in mpOpenSocket() hieronder.
+    // vergelijking in de mpSync-onOpen-callback hieronder.
     return { phase: "setup", seats: { p0: null, p1: null }, roomCode: null };
   }
 
@@ -1426,61 +1365,22 @@
     return el.closest(".arena-chip");
   }
 
-  // Legaliteit van een cast (punt 4, enkel afgedwongen als arena.settings.
-  // enforceCastLegality aanstaat — zie tandwiel-menu). Twee dingen worden
-  // gecontroleerd:
-  //   1) Genoeg Actions/Spite voor kaarten met een kost (cfr. TYPE_CONFIG).
-  //   2) Juiste beurt/priority: ligt de stack leeg, dan mag enkel de speler
-  //      aan zet (arena.turn) casten; ligt er al iets op de stack, dan mag
-  //      enkel wie op dat moment priority heeft (cfr. de bestaande
-  //      priority-stack in castCardToStack/resolveStackTop) er nog iets
-  //      bovenop casten.
-  // Geeft { ok:true } of { ok:false, reason:"..." } terug; roept zelf niets
-  // aan (geen alert, geen state-wijziging) zodat dit ook los te herbruiken/
-  // testen is.
-  function checkCastLegality(casterIdx, ci){
+  // checkCastLegality zelf is verplaatst naar shared/game-mechanics.js
+  // (Road to sustainability.txt, Fase 4) als pure functie die expliciet
+  // { settings, stack, turn, players } + de kaart-data meekrijgt i.p.v. de
+  // globale `arena` te lezen. Dit wrapper-functietje pakt enkel die state
+  // uit arena uit, roept ensureArenaSettings() aan (state-initialisatie,
+  // geen regel) en zoekt de kaart-data op — dat blijft hier omdat het om
+  // arena-specifieke globals gaat (arena, findCard) die niet in de gedeelde
+  // module thuishoren.
+  function checkCastLegalityForArena(casterIdx, ci){
     ensureArenaSettings();
-    if (!arena.settings.enforceCastLegality) return { ok: true };
-
-    if (arena.stack.length === 0){
-      if (arena.turn === null || arena.turn === undefined){
-        return { ok: false, reason: "Het spel is nog niet gestart — wacht tot beide spelers Ready zijn." };
-      }
-      if (arena.turn !== casterIdx){
-        return { ok: false, reason: `Het is niet jouw beurt (aan zet: ${arena.players[arena.turn] ? arena.players[arena.turn].name : "?"}).` };
-      }
-    } else {
-      const top = arena.stack[arena.stack.length - 1];
-      // freeActionSpending (tandwiel-menu): de speler die AAN ZET is hoeft
-      // niet te wachten tot priority op de stack naar hem terugkeert om nog
-      // een kaart te casten — enkel voor die actieve speler, en enkel voor
-      // deze ene voorwaarde; de tegenstander (of de actieve speler zelf op
-      // een moment dat hij niet aan zet is, bv. als reactie) heeft nog
-      // steeds gewoon priority nodig zoals voorheen.
-      const skipPriorityCheck = arena.settings.freeActionSpending && arena.turn === casterIdx;
-      if (!skipPriorityCheck && top.priorityWith !== casterIdx){
-        const activeName = arena.players[top.priorityWith] ? arena.players[top.priorityWith].name : "?";
-        return { ok: false, reason: `Je hebt momenteel geen priority (die ligt bij ${activeName}) — wacht tot die Resolve klikt of zelf iets cast.` };
-      }
-    }
-
     const card = findCard(ci.cardId);
-    const cfg = (typeof TYPE_CONFIG !== "undefined" && card) ? (TYPE_CONFIG[card.type] || null) : null;
-    if (cfg && cfg.cost){
-      const casterPlayer = arena.players[casterIdx];
-      const actionCost = parseInt(card.actionCost, 10) || 0;
-      const spiteCost = parseInt(card.spiteCost, 10) || 0;
-      const haveActions = casterPlayer.counters.actions || 0;
-      const haveSpite = casterPlayer.counters.spite || 0;
-      if (actionCost > haveActions){
-        return { ok: false, reason: `Onvoldoende Actions: ${actionCost} nodig, ${haveActions} beschikbaar.` };
-      }
-      if (spiteCost > haveSpite){
-        return { ok: false, reason: `Onvoldoende Spite: ${spiteCost} nodig, ${haveSpite} beschikbaar.` };
-      }
-    }
-
-    return { ok: true };
+    return checkCastLegality(
+      { settings: arena.settings, stack: arena.stack, turn: arena.turn, players: arena.players },
+      casterIdx,
+      card
+    );
   }
 
   const DRAG_THRESHOLD = 6;
@@ -1563,7 +1463,7 @@
           // meteen naar die bestemming maar wordt onderschept en op de stack
           // gelegd met een target erbij — zie castCardToStack hieronder.
           const isCastAttempt = !isPreGameDestinyPlacement && zone === "hand" && (destZone === "stack" || (destZone && destZone.indexOf("inPlay") === 0));
-          const castLegality = isCastAttempt ? checkCastLegality(playerIdx, ci) : null;
+          const castLegality = isCastAttempt ? checkCastLegalityForArena(playerIdx, ci) : null;
           if (isPreGameDestinyPlacement){
             const section = lastHovered.closest(".arena-player");
             if (section){
@@ -1658,142 +1558,122 @@
     renderArenaBoard();
   }
 
-  // ---- Card zoom view ----
-  let arenaZoom = null;
+  // ---- Card zoom view (bouwt op de generieke overlay-fabriek in
+  // shared/overlay.js — zie Road to sustainability.txt Fase 3a) ----
+  const arenaZoomOverlay = createOverlayManager({
+    id: "arena-zoom-overlay",
+    mount: () => document.getElementById("view-arena"),
+    renderContent(el, state, ctx){
+      const { playerIdx, zone, instanceId } = state;
+      const ci = findInstance(playerIdx, zone, instanceId);
+      if (!ci){ ctx.close(); return; }
+      const card = findCard(ci.cardId);
+      const counters = ci.counters || freshCounters();
+      const showCounters = zoneAllowsCounters(zone);
+      const canFile = playerIdx !== null && playerIdx !== undefined;
+
+      el.innerHTML = `
+        <div class="arena-zoom-content">
+          <div style="position:relative;">
+            ${card ? buildCardFrameHtml(card) : `<div class="card-frame"><div class="chip-name" style="color:var(--ink-dim); margin:20px;">Verwijderde kaart</div></div>`}
+            ${ci.tapped ? `<span class="arena-zoom-tapped-tag">TAP</span>` : ""}
+          </div>
+          <div class="arena-zoom-panel">
+            <button type="button" class="btn primary zoom-tap-btn" id="zoom-tap-btn">${ci.tapped ? "↺ Ready maken" : "⤵ Exhaust"}</button>
+
+            ${showCounters ? `
+            <div>
+              <div class="zoom-section-label">Time Counter</div>
+              <div class="arena-zoom-counter-row">
+                <span class="zoom-dot dot-white"></span>
+                <span class="zoom-c-label">Wit</span>
+                <button type="button" id="zoom-white-minus">−</button>
+                <span class="zoom-c-value">${counters.white || 0}</span>
+                <button type="button" id="zoom-white-plus">+</button>
+              </div>
+            </div>
+            <div>
+              <div class="zoom-section-label">Damage</div>
+              <div class="arena-zoom-counter-row">
+                <span class="zoom-dot dot-black"></span>
+                <span class="zoom-c-label">Zwart</span>
+                <button type="button" id="zoom-black-minus">−</button>
+                <span class="zoom-c-value">${counters.black || 0}</span>
+                <button type="button" id="zoom-black-plus">+</button>
+              </div>
+              ${permanentStatusLabel(card, zone, counters) ? `<div class="zoom-hint" style="color:#e79aaa;">⚠ ${permanentStatusLabel(card, zone, counters)} — nieuwe schade doodt deze kaart (naar discard).</div>` : ""}
+            </div>
+            ` : `<div class="zoom-hint">Tellers zijn enkel beschikbaar voor kaarten die in het spel liggen (Body/Mind/Soul).</div>`}
+
+            <div class="zoom-actions">
+              ${canFile ? `
+                <button type="button" class="btn" id="zoom-hand-btn" ${zone === "hand" ? "disabled" : ""}>✋ Terug naar hand</button>
+                <button type="button" class="btn" id="zoom-discard-btn" ${zone === "discard" ? "disabled" : ""}>🗃 Discard card</button>
+                <button type="button" class="btn danger" id="zoom-banish-btn" ${zone === "banished" ? "disabled" : ""}>☠ Banish card</button>
+              ` : `<div class="zoom-hint">Kaarten op de stack kunnen niet rechtstreeks gediscard/banished worden — sleep ze eerst naar een speler.</div>`}
+            </div>
+          </div>
+          <button type="button" class="arena-zoom-close" id="zoom-close-btn" title="Sluiten">×</button>
+        </div>
+      `;
+
+      el.querySelector("#zoom-tap-btn").addEventListener("click", () => {
+        ci.tapped = !ci.tapped;
+        const cardForLog = findCard(ci.cardId);
+        const nameForLog = cardForLog ? (cardForLog.name || "(naamloos)") : "(verwijderde kaart)";
+        const ownerForLog = (playerIdx !== null && playerIdx !== undefined && arena.players[playerIdx]) ? ` (${arena.players[playerIdx].name})` : "";
+        // Slumber (printed op de kaart, default 0): bij het exhausten wordt
+        // het witte Time Counter-getal meteen op de Slumber-waarde gezet —
+        // die telt daarna bij elke actie van de eigenaar af (zie spendAction)
+        // tot de kaart vanzelf weer ready wordt. Enkel relevant in een zone
+        // die tellers toont (in-play); bij Slumber 0 blijft de teller op 0,
+        // en readiet de kaart al bij de eerstvolgende actie.
+        if (ci.tapped && zoneAllowsCounters(zone)){
+          if (!ci.counters) ci.counters = freshCounters();
+          ci.counters.white = cardForLog ? (cardForLog.slumber || 0) : 0;
+        }
+        logAction(`${ci.tapped ? "⤵ Exhaust" : "↺ Ready"}: ${nameForLog}${ownerForLog}`, "tap");
+        saveArena();
+        renderArenaBoard();
+      });
+      el.querySelector("#zoom-close-btn").addEventListener("click", ctx.close);
+      if (showCounters){
+        el.querySelector("#zoom-white-plus").addEventListener("click", () => addCounterToInstance(playerIdx, zone, instanceId, "white"));
+        el.querySelector("#zoom-white-minus").addEventListener("click", () => removeCounterFromInstance(playerIdx, zone, instanceId, "white"));
+        el.querySelector("#zoom-black-plus").addEventListener("click", () => addCounterToInstance(playerIdx, zone, instanceId, "black"));
+        el.querySelector("#zoom-black-minus").addEventListener("click", () => removeCounterFromInstance(playerIdx, zone, instanceId, "black"));
+      }
+      if (canFile){
+        const handBtn = el.querySelector("#zoom-hand-btn");
+        const discardBtn = el.querySelector("#zoom-discard-btn");
+        const banishBtn = el.querySelector("#zoom-banish-btn");
+        if (zone !== "hand") handBtn.addEventListener("click", () => {
+          performCardMove(playerIdx, zone, instanceId, playerIdx, "hand");
+          ctx.close();
+        });
+        if (zone !== "discard") discardBtn.addEventListener("click", () => {
+          performCardMove(playerIdx, zone, instanceId, playerIdx, "discard");
+          ctx.close();
+        });
+        if (zone !== "banished") banishBtn.addEventListener("click", () => {
+          performCardMove(playerIdx, zone, instanceId, playerIdx, "banished");
+          ctx.close();
+        });
+      }
+    }
+  });
 
   function openArenaZoom(playerIdx, zone, instanceId){
     hideArenaPreview();
-    arenaZoom = { playerIdx, zone, instanceId };
-    renderArenaZoomOverlay();
+    arenaZoomOverlay.open({ playerIdx, zone, instanceId });
   }
 
   function closeArenaZoom(){
-    if (!arenaZoom) return;
-    arenaZoom = null;
-    renderArenaZoomOverlay();
-  }
-
-  function ensureArenaZoomEl(){
-    let el = document.getElementById("arena-zoom-overlay");
-    if (!el){
-      el = document.createElement("div");
-      el.id = "arena-zoom-overlay";
-      document.getElementById("view-arena").appendChild(el);
-      el.addEventListener("pointerdown", (e) => { if (e.target === el) closeArenaZoom(); });
-      document.addEventListener("keydown", (e) => { if (e.key === "Escape" && arenaZoom) closeArenaZoom(); });
-    }
-    return el;
+    arenaZoomOverlay.close();
   }
 
   function renderArenaZoomOverlay(){
-    const el = ensureArenaZoomEl();
-    if (!arenaZoom){
-      el.classList.remove("open");
-      el.innerHTML = "";
-      return;
-    }
-    const { playerIdx, zone, instanceId } = arenaZoom;
-    const ci = findInstance(playerIdx, zone, instanceId);
-    if (!ci){
-      arenaZoom = null;
-      el.classList.remove("open");
-      el.innerHTML = "";
-      return;
-    }
-    const card = findCard(ci.cardId);
-    const counters = ci.counters || freshCounters();
-    const showCounters = zoneAllowsCounters(zone);
-    const canFile = playerIdx !== null && playerIdx !== undefined;
-
-    el.classList.add("open");
-    el.innerHTML = `
-      <div class="arena-zoom-content">
-        <div style="position:relative;">
-          ${card ? buildCardFrameHtml(card) : `<div class="card-frame"><div class="chip-name" style="color:var(--ink-dim); margin:20px;">Verwijderde kaart</div></div>`}
-          ${ci.tapped ? `<span class="arena-zoom-tapped-tag">TAP</span>` : ""}
-        </div>
-        <div class="arena-zoom-panel">
-          <button type="button" class="btn primary zoom-tap-btn" id="zoom-tap-btn">${ci.tapped ? "↺ Ready maken" : "⤵ Exhaust"}</button>
-
-          ${showCounters ? `
-          <div>
-            <div class="zoom-section-label">Time Counter</div>
-            <div class="arena-zoom-counter-row">
-              <span class="zoom-dot dot-white"></span>
-              <span class="zoom-c-label">Wit</span>
-              <button type="button" id="zoom-white-minus">−</button>
-              <span class="zoom-c-value">${counters.white || 0}</span>
-              <button type="button" id="zoom-white-plus">+</button>
-            </div>
-          </div>
-          <div>
-            <div class="zoom-section-label">Damage</div>
-            <div class="arena-zoom-counter-row">
-              <span class="zoom-dot dot-black"></span>
-              <span class="zoom-c-label">Zwart</span>
-              <button type="button" id="zoom-black-minus">−</button>
-              <span class="zoom-c-value">${counters.black || 0}</span>
-              <button type="button" id="zoom-black-plus">+</button>
-            </div>
-            ${permanentStatusLabel(card, zone, counters) ? `<div class="zoom-hint" style="color:#e79aaa;">⚠ ${permanentStatusLabel(card, zone, counters)} — nieuwe schade doodt deze kaart (naar discard).</div>` : ""}
-          </div>
-          ` : `<div class="zoom-hint">Tellers zijn enkel beschikbaar voor kaarten die in het spel liggen (Body/Mind/Soul).</div>`}
-
-          <div class="zoom-actions">
-            ${canFile ? `
-              <button type="button" class="btn" id="zoom-hand-btn" ${zone === "hand" ? "disabled" : ""}>✋ Terug naar hand</button>
-              <button type="button" class="btn" id="zoom-discard-btn" ${zone === "discard" ? "disabled" : ""}>🗃 Discard card</button>
-              <button type="button" class="btn danger" id="zoom-banish-btn" ${zone === "banished" ? "disabled" : ""}>☠ Banish card</button>
-            ` : `<div class="zoom-hint">Kaarten op de stack kunnen niet rechtstreeks gediscard/banished worden — sleep ze eerst naar een speler.</div>`}
-          </div>
-        </div>
-        <button type="button" class="arena-zoom-close" id="zoom-close-btn" title="Sluiten">×</button>
-      </div>
-    `;
-
-    el.querySelector("#zoom-tap-btn").addEventListener("click", () => {
-      ci.tapped = !ci.tapped;
-      const cardForLog = findCard(ci.cardId);
-      const nameForLog = cardForLog ? (cardForLog.name || "(naamloos)") : "(verwijderde kaart)";
-      const ownerForLog = (playerIdx !== null && playerIdx !== undefined && arena.players[playerIdx]) ? ` (${arena.players[playerIdx].name})` : "";
-      // Slumber (printed op de kaart, default 0): bij het exhausten wordt
-      // het witte Time Counter-getal meteen op de Slumber-waarde gezet —
-      // die telt daarna bij elke actie van de eigenaar af (zie spendAction)
-      // tot de kaart vanzelf weer ready wordt. Enkel relevant in een zone
-      // die tellers toont (in-play); bij Slumber 0 blijft de teller op 0,
-      // en readiet de kaart al bij de eerstvolgende actie.
-      if (ci.tapped && zoneAllowsCounters(zone)){
-        if (!ci.counters) ci.counters = freshCounters();
-        ci.counters.white = cardForLog ? (cardForLog.slumber || 0) : 0;
-      }
-      logAction(`${ci.tapped ? "⤵ Exhaust" : "↺ Ready"}: ${nameForLog}${ownerForLog}`, "tap");
-      saveArena();
-      renderArenaBoard();
-    });
-    el.querySelector("#zoom-close-btn").addEventListener("click", closeArenaZoom);
-    if (showCounters){
-      el.querySelector("#zoom-white-plus").addEventListener("click", () => addCounterToInstance(playerIdx, zone, instanceId, "white"));
-      el.querySelector("#zoom-white-minus").addEventListener("click", () => removeCounterFromInstance(playerIdx, zone, instanceId, "white"));
-      el.querySelector("#zoom-black-plus").addEventListener("click", () => addCounterToInstance(playerIdx, zone, instanceId, "black"));
-      el.querySelector("#zoom-black-minus").addEventListener("click", () => removeCounterFromInstance(playerIdx, zone, instanceId, "black"));
-    }
-    if (canFile){
-      const handBtn = el.querySelector("#zoom-hand-btn");
-      const discardBtn = el.querySelector("#zoom-discard-btn");
-      const banishBtn = el.querySelector("#zoom-banish-btn");
-      if (zone !== "hand") handBtn.addEventListener("click", () => {
-        performCardMove(playerIdx, zone, instanceId, playerIdx, "hand");
-        closeArenaZoom();
-      });
-      if (zone !== "discard") discardBtn.addEventListener("click", () => {
-        performCardMove(playerIdx, zone, instanceId, playerIdx, "discard");
-        closeArenaZoom();
-      });
-      if (zone !== "banished") banishBtn.addEventListener("click", () => {
-        performCardMove(playerIdx, zone, instanceId, playerIdx, "banished");
-        closeArenaZoom();
-      });
-    }
+    arenaZoomOverlay.render();
   }
 
   function drawCard(playerIdx){
@@ -1888,7 +1768,7 @@
       // van een kaart met actionCost > 1 telt dus als evenveel acties.
       let tickedCount = 0, readiedCount = 0;
       for (let i = 0; i < actionCost; i++){
-        const tickResult = tickSlumberOnce(casterIdx);
+        const tickResult = tickSlumberOnce(casterPlayer);
         tickedCount += tickResult.tickedCount;
         readiedCount += tickResult.readiedCount;
       }
@@ -2054,109 +1934,73 @@
     startPlayerTurn(otherPlayerIdx(playerIdx));
   }
 
-  // ---- Generic centered choice popup ----
-  let arenaChoice = null;
+  // ---- Generic centered choice popup (shared/overlay.js, Fase 3a) ----
+  const arenaChoiceOverlay = createOverlayManager({
+    id: "arena-choice-overlay",
+    mount: () => document.getElementById("view-arena"),
+    renderContent(el, state, ctx){
+      const { title, options, onSelect } = state;
+      el.innerHTML = `
+        <div class="arena-choice-box">
+          <div class="arena-choice-title">${escapeHtml(title)}</div>
+          <div class="arena-choice-list">
+            ${options.length
+              ? options.map(o => `<button type="button" class="arena-choice-opt" data-key="${escapeHtml(o.key)}">${o.label}</button>`).join("")
+              : `<div class="arena-choice-empty">Geen opties beschikbaar.</div>`
+            }
+          </div>
+          <button type="button" class="arena-choice-close" id="choice-close-btn" title="Sluiten">×</button>
+        </div>
+      `;
+      el.querySelector("#choice-close-btn").addEventListener("click", ctx.close);
+      el.querySelectorAll(".arena-choice-opt").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const key = btn.dataset.key;
+          ctx.close();
+          if (onSelect) onSelect(key);
+        });
+      });
+    }
+  });
 
   function openArenaChoice(title, options, onSelect){
-    arenaChoice = { title, options, onSelect };
-    renderArenaChoiceOverlay();
+    arenaChoiceOverlay.open({ title, options, onSelect });
   }
 
   function closeArenaChoice(){
-    if (!arenaChoice) return;
-    arenaChoice = null;
-    renderArenaChoiceOverlay();
+    arenaChoiceOverlay.close();
   }
 
-  function ensureArenaChoiceEl(){
-    let el = document.getElementById("arena-choice-overlay");
-    if (!el){
-      el = document.createElement("div");
-      el.id = "arena-choice-overlay";
-      document.getElementById("view-arena").appendChild(el);
-      el.addEventListener("pointerdown", (e) => { if (e.target === el) closeArenaChoice(); });
-      document.addEventListener("keydown", (e) => { if (e.key === "Escape" && arenaChoice) closeArenaChoice(); });
-    }
-    return el;
-  }
-
-  function renderArenaChoiceOverlay(){
-    const el = ensureArenaChoiceEl();
-    if (!arenaChoice){
-      el.classList.remove("open");
-      el.innerHTML = "";
-      return;
-    }
-    const { title, options } = arenaChoice;
-    el.classList.add("open");
-    el.innerHTML = `
-      <div class="arena-choice-box">
-        <div class="arena-choice-title">${escapeHtml(title)}</div>
-        <div class="arena-choice-list">
-          ${options.length
-            ? options.map(o => `<button type="button" class="arena-choice-opt" data-key="${escapeHtml(o.key)}">${o.label}</button>`).join("")
-            : `<div class="arena-choice-empty">Geen opties beschikbaar.</div>`
-          }
+  // ---- Notice-popup (vervangt alert() binnen het bord/zen-mode; ook via
+  // shared/overlay.js, Fase 3a) ----
+  const arenaNoticeOverlay = createOverlayManager({
+    id: "arena-notice-overlay",
+    mount: () => document.getElementById("view-arena"),
+    renderContent(el, state, ctx){
+      const { title, message } = state;
+      el.innerHTML = `
+        <div class="arena-notice-box">
+          <div class="arena-notice-title">${escapeHtml(title)}</div>
+          <p class="arena-notice-body">${escapeHtml(message)}</p>
+          <button type="button" class="btn primary arena-notice-ok-btn" id="notice-ok-btn">Begrepen</button>
+          <button type="button" class="arena-notice-close" id="notice-close-btn" title="Sluiten">×</button>
         </div>
-        <button type="button" class="arena-choice-close" id="choice-close-btn" title="Sluiten">×</button>
-      </div>
-    `;
-    el.querySelector("#choice-close-btn").addEventListener("click", closeArenaChoice);
-    el.querySelectorAll(".arena-choice-opt").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const cb = arenaChoice.onSelect;
-        const key = btn.dataset.key;
-        closeArenaChoice();
-        if (cb) cb(key);
-      });
-    });
-  }
-
-  // ---- Notice-popup (vervangt alert() binnen het bord/zen-mode) ----
-  let arenaNotice = null;
+      `;
+      el.querySelector("#notice-ok-btn").addEventListener("click", ctx.close);
+      el.querySelector("#notice-close-btn").addEventListener("click", ctx.close);
+    }
+  });
 
   function showArenaNotice(title, message){
-    arenaNotice = { title, message };
-    renderArenaNoticeOverlay();
+    arenaNoticeOverlay.open({ title, message });
   }
 
   function closeArenaNotice(){
-    if (!arenaNotice) return;
-    arenaNotice = null;
-    renderArenaNoticeOverlay();
-  }
-
-  function ensureArenaNoticeEl(){
-    let el = document.getElementById("arena-notice-overlay");
-    if (!el){
-      el = document.createElement("div");
-      el.id = "arena-notice-overlay";
-      document.getElementById("view-arena").appendChild(el);
-      el.addEventListener("pointerdown", (e) => { if (e.target === el) closeArenaNotice(); });
-      document.addEventListener("keydown", (e) => { if (e.key === "Escape" && arenaNotice) closeArenaNotice(); });
-    }
-    return el;
+    arenaNoticeOverlay.close();
   }
 
   function renderArenaNoticeOverlay(){
-    const el = ensureArenaNoticeEl();
-    if (!arenaNotice){
-      el.classList.remove("open");
-      el.innerHTML = "";
-      return;
-    }
-    const { title, message } = arenaNotice;
-    el.classList.add("open");
-    el.innerHTML = `
-      <div class="arena-notice-box">
-        <div class="arena-notice-title">${escapeHtml(title)}</div>
-        <p class="arena-notice-body">${escapeHtml(message)}</p>
-        <button type="button" class="btn primary arena-notice-ok-btn" id="notice-ok-btn">Begrepen</button>
-        <button type="button" class="arena-notice-close" id="notice-close-btn" title="Sluiten">×</button>
-      </div>
-    `;
-    el.querySelector("#notice-ok-btn").addEventListener("click", closeArenaNotice);
-    el.querySelector("#notice-close-btn").addEventListener("click", closeArenaNotice);
+    arenaNoticeOverlay.render();
   }
 
   function openInflictChoice(playerIdx){
@@ -2219,43 +2063,18 @@
   }
 
   // Klik op "⚡ Actions": verbruikt één actie (teller -1).
-  // Slumber-mechanisme: enkel getapte (exhausted) permanents tellen mee.
-  // Staat er nog een wit Time Counter op, dan gaat er één af; staat de
-  // teller al op 0 (printed Slumber 0, of afgeteld in een vorige actie), dan
-  // wordt de kaart meteen ready — zelfde logica als bij Rest (restPlayer),
-  // maar dan bij ELKE actie i.p.v. enkel bij Rest. Ongetapte kaarten worden
-  // niet meer aangeraakt (voorheen wel, ongeacht tapped-status — dat klopte
-  // niet met Slumber: een teller heeft enkel betekenis voor een exhausted
-  // kaart).
-  // Verwerkt het Slumber-aftikken/readyen voor ÉÉN besteedde actie van een
-  // speler: elke getapte in-play kaart met nog een wit Time Counter erop
-  // telt er één af, een kaart zonder Time Counter (meer) wordt meteen ready.
-  // Herbruikt door zowel spendAction (klik op "Actions") als castCardToStack
-  // (elke actie die opgaat aan het casten van een Manifestation/Incantation/
-  // ... simuleert op dezelfde manier een actie, per eenheid actionCost).
-  function tickSlumberOnce(playerIdx){
-    const p = arena.players[playerIdx];
-    let tickedCount = 0, readiedCount = 0;
-    ["inPlayBody", "inPlayMind", "inPlaySoul"].forEach(zone => {
-      p[zone].forEach(ci => {
-        if (!ci.tapped) return;
-        if (!ci.counters) ci.counters = freshCounters();
-        if ((ci.counters.white || 0) > 0){
-          ci.counters.white -= 1;
-          tickedCount++;
-        } else {
-          ci.tapped = false;
-          readiedCount++;
-        }
-      });
-    });
-    return { tickedCount, readiedCount };
-  }
+  // tickSlumberOnce zelf is verplaatst naar shared/game-mechanics.js (Road
+  // to sustainability.txt, Fase 4) als pure functie die het player-object
+  // rechtstreeks meekrijgt i.p.v. een playerIdx + de globale `arena` te
+  // lezen. Herbruikt door zowel spendAction (klik op "Actions") hieronder
+  // als castCardToStack (elke actie die opgaat aan het casten van een
+  // Manifestation/Incantation/... simuleert op dezelfde manier een actie,
+  // per eenheid actionCost).
 
   function spendAction(playerIdx){
     const p = arena.players[playerIdx];
     if ((p.counters.actions || 0) <= 0) return;
-    const { tickedCount, readiedCount } = tickSlumberOnce(playerIdx);
+    const { tickedCount, readiedCount } = tickSlumberOnce(p);
     p.counters.actions = Math.max(0, (p.counters.actions || 0) - 1);
     logAction(`⚡ ${p.name} gebruikt een actie` + (tickedCount || readiedCount ? ` (${tickedCount} tijdteller(s) verwerkt, ${readiedCount} kaart(en) ready)` : ""), "action");
     saveArena();
@@ -2325,37 +2144,13 @@
     return zone === "inPlayBody" || zone === "inPlayMind" || zone === "inPlaySoul";
   }
 
-  // Manifestation/Destiny-schade & dood (cfr. Gamerules-specificatie.txt,
-  // sectie 2c): elke Manifestation/Destiny die in het spel ligt, ligt altijd
-  // in exact één van de drie zones en kan enkel schade van de overeenkomstige
-  // stat krijgen. Zodra de zwarte Damage-teller >= die stat, is de permanent
-  // Vulnerable/Confused/Forlorn — zelfde naamgeving als shieldStatusBadge()
-  // hieronder voor Wizard-schilden, maar hier WEL met een gevolg (zie
-  // addCounterToInstance hierboven: elke volgende schade doodt de kaart),
-  // in tegenstelling tot de puur informatieve Wizard-versie.
-  const PERMANENT_DAMAGE_LABELS = { inPlayBody: "Vulnerable", inPlayMind: "Confused", inPlaySoul: "Forlorn" };
-  const PERMANENT_DAMAGE_STATKEY = { inPlayBody: "body", inPlayMind: "mind", inPlaySoul: "soul" };
-
-  function permanentTakesZoneDamage(card){
-    return !!card && (card.type === "Manifestation" || card.type === "Destiny");
-  }
-
-  function permanentRelevantStat(card, zone){
-    const statKey = PERMANENT_DAMAGE_STATKEY[zone];
-    if (!statKey) return 0;
-    const raw = card[statKey];
-    return (raw === "" || raw === null || raw === undefined) ? 0 : (parseInt(raw, 10) || 0);
-  }
-
-  function isPermanentVulnerable(card, zone, counters){
-    if (!permanentTakesZoneDamage(card) || !PERMANENT_DAMAGE_LABELS[zone]) return false;
-    const dmg = (counters && counters.black) || 0;
-    return dmg >= permanentRelevantStat(card, zone);
-  }
-
-  function permanentStatusLabel(card, zone, counters){
-    return isPermanentVulnerable(card, zone, counters) ? PERMANENT_DAMAGE_LABELS[zone] : "";
-  }
+  // permanentTakesZoneDamage/permanentRelevantStat/isPermanentVulnerable/
+  // permanentStatusLabel (en PERMANENT_DAMAGE_LABELS/PERMANENT_DAMAGE_STATKEY)
+  // zijn verplaatst naar shared/game-mechanics.js (Road to sustainability.txt,
+  // Fase 4) — ongewijzigde pure functies, al puur genoeg om zonder aanpassing
+  // te verhuizen. Nog steeds gebruikt hieronder (addCounterToInstance) en
+  // verderop (o.a. de zoom-view) als gewone globals, nu gedefinieerd in dat
+  // gedeelde bestand i.p.v. hier.
 
   function buildCounterBadgesHtml(ci, zone){
     if (!zoneAllowsCounters(zone)) return "";
@@ -2491,70 +2286,49 @@
     container.appendChild(slot);
   }
 
-  // ---- Pile-overlay ----
-  let arenaPileView = null;
+  // ---- Pile-overlay (shared/overlay.js, Fase 3a) ----
+  const arenaPileOverlay = createOverlayManager({
+    id: "arena-pile-overlay",
+    mount: () => document.getElementById("view-arena"),
+    renderContent(el, state, ctx){
+      const { playerIdx, zone } = state;
+      const p = arena.players[playerIdx];
+      const list = p ? p[zone] : null;
+      if (!p || !list){ ctx.close(); return; }
+      const zoneLabel = zone === "discard" ? "Discard" : "Banished";
+      el.innerHTML = `
+        <div class="arena-pile-box">
+          <div class="arena-pile-title">${escapeHtml(zoneLabel)} — ${escapeHtml(p.name)} (${list.length})</div>
+          <div class="arena-pile-grid"></div>
+          ${list.length ? `<button type="button" class="btn" id="pile-shuffle-btn">↺ Meng terug in deck</button>` : ""}
+          <button type="button" class="arena-choice-close" id="pile-close-btn" title="Sluiten">×</button>
+        </div>
+      `;
+      const grid = el.querySelector(".arena-pile-grid");
+      if (list.length === 0){
+        grid.innerHTML = `<div class="zone-empty-msg">Leeg</div>`;
+      } else {
+        list.slice().reverse().forEach(ci => grid.appendChild(buildArenaCardNode(playerIdx, zone, ci, "chip-sm")));
+      }
+      el.querySelector("#pile-close-btn").addEventListener("click", ctx.close);
+      const shuffleBtn = el.querySelector("#pile-shuffle-btn");
+      if (shuffleBtn) shuffleBtn.addEventListener("click", () => {
+        shuffleZoneIntoDeck(playerIdx, zone);
+        ctx.close();
+      });
+    }
+  });
 
   function openPileView(playerIdx, zone){
-    arenaPileView = { playerIdx, zone };
-    renderArenaPileOverlay();
+    arenaPileOverlay.open({ playerIdx, zone });
   }
 
   function closePileView(){
-    if (!arenaPileView) return;
-    arenaPileView = null;
-    renderArenaPileOverlay();
-  }
-
-  function ensureArenaPileEl(){
-    let el = document.getElementById("arena-pile-overlay");
-    if (!el){
-      el = document.createElement("div");
-      el.id = "arena-pile-overlay";
-      document.getElementById("view-arena").appendChild(el);
-      el.addEventListener("pointerdown", (e) => { if (e.target === el) closePileView(); });
-      document.addEventListener("keydown", (e) => { if (e.key === "Escape" && arenaPileView) closePileView(); });
-    }
-    return el;
+    arenaPileOverlay.close();
   }
 
   function renderArenaPileOverlay(){
-    const el = ensureArenaPileEl();
-    if (!arenaPileView){
-      el.classList.remove("open");
-      el.innerHTML = "";
-      return;
-    }
-    const { playerIdx, zone } = arenaPileView;
-    const p = arena.players[playerIdx];
-    const list = p ? p[zone] : null;
-    if (!p || !list){
-      arenaPileView = null;
-      el.classList.remove("open");
-      el.innerHTML = "";
-      return;
-    }
-    const zoneLabel = zone === "discard" ? "Discard" : "Banished";
-    el.classList.add("open");
-    el.innerHTML = `
-      <div class="arena-pile-box">
-        <div class="arena-pile-title">${escapeHtml(zoneLabel)} — ${escapeHtml(p.name)} (${list.length})</div>
-        <div class="arena-pile-grid"></div>
-        ${list.length ? `<button type="button" class="btn" id="pile-shuffle-btn">↺ Meng terug in deck</button>` : ""}
-        <button type="button" class="arena-choice-close" id="pile-close-btn" title="Sluiten">×</button>
-      </div>
-    `;
-    const grid = el.querySelector(".arena-pile-grid");
-    if (list.length === 0){
-      grid.innerHTML = `<div class="zone-empty-msg">Leeg</div>`;
-    } else {
-      list.slice().reverse().forEach(ci => grid.appendChild(buildArenaCardNode(playerIdx, zone, ci, "chip-sm")));
-    }
-    el.querySelector("#pile-close-btn").addEventListener("click", closePileView);
-    const shuffleBtn = el.querySelector("#pile-shuffle-btn");
-    if (shuffleBtn) shuffleBtn.addEventListener("click", () => {
-      shuffleZoneIntoDeck(playerIdx, zone);
-      closePileView();
-    });
+    arenaPileOverlay.render();
   }
 
   // ---- Tandwiel-menu: test-instellingen (arena.settings), vlak onder de
@@ -3031,7 +2805,7 @@
   document.getElementById("btn-end-arena").addEventListener("click", () => {
     if (!confirm("Terug naar instellingen? De huidige wedstrijd (handen, decks, tellers) gaat hierbij verloren, tenzij je een nieuwe start met dezelfde instellingen.")) return;
     // roomCode behouden: we blijven verbonden met dezelfde room, dus de
-    // nieuwe setup-stand hoort daar nog steeds bij (zie mpOpenSocket).
+    // nieuwe setup-stand hoort daar nog steeds bij (zie mpSync-onOpen).
     const prevRoomCode = (arena && arena.roomCode) || null;
     arena = freshSetupArena();
     arena.roomCode = prevRoomCode;
@@ -3130,14 +2904,18 @@
   // (arena.phase === "setup"), niet enkel eens het bord bestaat — zo kan elke
   // speler zijn eigen naam+deck kiezen en ziet de ander dat verschijnen,
   // zonder dat de relay-server enig nieuw berichttype hoeft te kennen.
+  //
+  // Sinds Fase 3b (Road to sustainability.txt) zit het generieke connect/
+  // reconnect/backoff/send-mechaniek in shared/ws-sync.js. Hieronder blijft
+  // enkel de arena-specifieke kennis over: welk bericht bij het openen te
+  // sturen, hoe een "arena-state"/"peer-count"-bericht te verwerken, en de
+  // seat-claim/initial-state-handshake-timing.
   const MP_SETTINGS_KEY = "wizards_arena_mp_settings_v1";
-  let mpSocket = null;
   let mpConnected = false;
-  let mpIntentionalDisconnect = false;
-  let mpReconnectTimer = null;
   let mpSuppressBroadcast = false;
   let mpAwaitingInitialState = false;
   let mpInitialStateTimer = null;
+  let mpRoom = null;
 
   const MP_DEFAULT_SERVER_URL = "wss://wizards-arena.onrender.com";
   const MP_DEFAULT_ROOM = "ROOM";
@@ -3180,45 +2958,18 @@
     return code;
   }
 
-  function mpConnect(){
-    const urlInput = document.getElementById("mp-server-url");
-    const roomInput = document.getElementById("mp-room-code");
-    const url = (urlInput.value || "").trim();
-    const room = (roomInput.value || "").trim();
-    if (!url || !room){
-      mpSetStatus("Vul zowel server-adres als roomcode in.", "err");
-      return;
-    }
-    saveMpSettings(url, room);
-    mpIntentionalDisconnect = false;
-    mpOpenSocket(url, room);
-  }
-
-  function mpDisconnect(){
-    mpIntentionalDisconnect = true;
-    if (mpReconnectTimer){ clearTimeout(mpReconnectTimer); mpReconnectTimer = null; }
-    if (mpInitialStateTimer){ clearTimeout(mpInitialStateTimer); mpInitialStateTimer = null; }
-    if (mpSocket){ try { mpSocket.close(); } catch (e){ /* ignore */ } }
-    mpSocket = null;
-    mpConnected = false;
-    mySeat = null;
-    mpSetStatus("Niet verbonden.", "");
-    mpUpdateButtons();
-    if (arena && arena.phase === "setup") renderArenaSetup();
-  }
-
   // Claimt mijn seat zodra duidelijk is of ik de eerste of tweede
   // aanwezige ben in deze room (zie uitleg bij "mySeat" hierboven).
   //
-  // Deze functie wordt uitsluitend aangeroepen vanuit de time-out in
-  // mpOpenSocket, dus enkel wanneer de server na een "join" NIETS heeft
-  // teruggestuurd (zie hieronder). Dat betekent onomstotelijk dat de room
-  // op de server leeg is — er is dus geen enkele reden om de lokaal
-  // gecachete `arena` (de autosave van een vorige, ANDERE room/match op
-  // dit toestel) nog te raadplegen: die kan perfect nog twee ingevulde
-  // seats bevatten van de vorige partij, wat vroeger foutief werd gelezen
-  // als "deze room heeft al twee spelers". We beginnen hier dus altijd met
-  // een schone lei en claimen p0.
+  // Deze functie wordt uitsluitend aangeroepen vanuit de time-out in de
+  // "onOpen"-callback hieronder (mpAwaitingInitialState), dus enkel wanneer
+  // de server na een "join" NIETS heeft teruggestuurd. Dat betekent
+  // onomstotelijk dat de room op de server leeg is — er is dus geen enkele
+  // reden om de lokaal gecachete `arena` (de autosave van een vorige,
+  // ANDERE room/match op dit toestel) nog te raadplegen: die kan perfect
+  // nog twee ingevulde seats bevatten van de vorige partij, wat vroeger
+  // foutief werd gelezen als "deze room heeft al twee spelers". We beginnen
+  // hier dus altijd met een schone lei en claimen p0.
   function mpClaimSeatAndInit(room){
     if (soloMode) return;
     arena = freshSetupArena();
@@ -3227,14 +2978,10 @@
     pushMySeat();
   }
 
-  function mpOpenSocket(url, room){
-    mpSetStatus("Verbinden…", "busy");
-    let socket;
-    try { socket = new WebSocket(url); }
-    catch (e){ mpSetStatus("Ongeldig server-adres.", "err"); return; }
-    mpSocket = socket;
-
-    socket.addEventListener("open", () => {
+  const mpSync = createWsSync({
+    onStatus: mpSetStatus,
+    onOpen(send){
+      const room = mpRoom;
       mpConnected = true;
       mpUpdateButtons();
       mpSetStatus(`Verbonden — room "${room}". Wachten op tegenstander…`, "ok");
@@ -3243,7 +2990,7 @@
       // een naamloze, verwarrende extra "Speler"-deelnemer op in de Council-
       // vergadertafel (presence-info) — die kijkt over ALLE sockets/rooms
       // heen, ook deze losse arena-verbinding.
-      socket.send(JSON.stringify({ type: "join", room: room, name: driveUsernameCache || "Speler" }));
+      send({ type: "join", room: room, name: driveUsernameCache || "Speler" });
 
       // Hoort de lokaal gecachete `arena` (autosave, mogelijk van een
       // eerdere/andere room of sessie) niet bij DEZE room, dan is hij hier
@@ -3263,7 +3010,7 @@
       if (arena && arena.phase === "board"){
         // Een match loopt al vóór DEZE room (bv. herverbinden na een korte
         // hik): meteen onze huidige stand aanbieden, net als voorheen.
-        socket.send(JSON.stringify({ type: "arena-state", arena: arena }));
+        send({ type: "arena-state", arena: arena });
       } else if (!soloMode) {
         // Nog geen bekende stand: wacht kort op wat de server ons stuurt
         // (de laatst bekende stand van de room, indien aanwezig). Komt er
@@ -3278,11 +3025,9 @@
           }
         }, 700);
       }
-    });
-
-    socket.addEventListener("message", (ev) => {
-      let msg;
-      try { msg = JSON.parse(ev.data); } catch (e){ return; }
+    },
+    onMessage(msg){
+      const room = mpRoom;
       if (msg.type === "arena-state"){
         if (mpAwaitingInitialState){
           mpAwaitingInitialState = false;
@@ -3298,27 +3043,41 @@
           "ok"
         );
       }
-    });
-
-    socket.addEventListener("close", () => {
+    },
+    onClose(){
       mpConnected = false;
       mpUpdateButtons();
-      if (!mpIntentionalDisconnect){
-        mpSetStatus("Verbinding verbroken — opnieuw proberen…", "err");
-        mpReconnectTimer = setTimeout(() => mpOpenSocket(url, room), 2000);
-      }
-    });
+    },
+  });
 
-    socket.addEventListener("error", () => {
-      mpSetStatus("Verbindingsfout — controleer het server-adres.", "err");
-    });
+  function mpConnect(){
+    const urlInput = document.getElementById("mp-server-url");
+    const roomInput = document.getElementById("mp-room-code");
+    const url = (urlInput.value || "").trim();
+    const room = (roomInput.value || "").trim();
+    if (!url || !room){
+      mpSetStatus("Vul zowel server-adres als roomcode in.", "err");
+      return;
+    }
+    saveMpSettings(url, room);
+    mpRoom = room;
+    mpSync.connect(url);
+  }
+
+  function mpDisconnect(){
+    mpSync.disconnect();
+    if (mpInitialStateTimer){ clearTimeout(mpInitialStateTimer); mpInitialStateTimer = null; }
+    mpAwaitingInitialState = false;
+    mpConnected = false;
+    mySeat = null;
+    mpSetStatus("Niet verbonden.", "");
+    mpUpdateButtons();
+    if (arena && arena.phase === "setup") renderArenaSetup();
   }
 
   function mpBroadcastState(){
     if (mpSuppressBroadcast) return;
-    if (!mpConnected || !mpSocket || mpSocket.readyState !== WebSocket.OPEN) return;
-    try { mpSocket.send(JSON.stringify({ type: "arena-state", arena: arena })); }
-    catch (e){ /* ignore */ }
+    mpSync.send({ type: "arena-state", arena: arena });
   }
 
   function mpApplyRemoteState(remoteArena){

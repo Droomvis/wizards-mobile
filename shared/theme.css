@@ -1,0 +1,83 @@
+/* =========================================================================
+   theme.css — gedeelde basisstijlen voor alle Wizards-modules.
+   Gebruikt door: collectie.html, draft.html, arena.html, cardbuilder.html,
+   council.html (en toekomstige modules).
+
+   Herkomst (Road to sustainability, Fase 1d): de :root-kleurenset en de
+   .btn-basisstijlen (.btn/.btn:hover/.btn.primary/.btn.primary:hover) en
+   *{box-sizing}/html,body{height}/body{...}-regels stonden letterlijk
+   (byte-voor-byte) gekopieerd in elke module se eigen <style>-blok.
+
+   Bewust NIET meegenomen: de per-module varianten (.btn-subtle-formaten,
+   .btn:disabled-gedrag, .btn.danger/.file-btn/.toggled, en council.html se
+   extra "display:flex; flex-direction:column" op body) — die verschilden
+   net genoeg tussen modules (padding/opacity/cursor) dat samenvoegen een
+   onbedoelde visuele wijziging had kunnen geven. Die blijven dus gewoon in
+   het <style>-blok van de module zelf staan, ná deze stylesheet geladen
+   (cascade: module-specifieke regels overschrijven/vullen aan wat hier
+   staat, ze vervangen het nooit).
+
+   Laad dit bestand in <head>, naast de andere shared/*.css-links. */
+
+:root{
+  --bg: #15121c;
+  --bg-vignette: radial-gradient(ellipse at 50% -10%, #241d33 0%, #15121c 55%);
+  --panel: #1e1a29;
+  --panel-2: #241f33;
+  --border: #362c49;
+  --border-soft: #2a2338;
+  --ink-light: #d9d2e8;
+  --ink-muted: #9788b3;
+  --ink-dim: #6f6288;
+  --gold: #c9a24b;
+  --gold-soft: #e2c583;
+  --parchment: #efe6d1;
+  --parchment-dark: #e2d5b5;
+  --parchment-ink: #2c2318;
+  --parchment-chip: #b7a578;
+  --parchment-chip-border: #8f7d4f;
+
+  --c-wizard: #3d5a80;
+  --c-manifestation: #3f6b4a;
+  --c-incantation: #9c3b4f;
+  --c-hex: #5b4b8a;
+  --c-destiny: #b8933a;
+  --c-burden: #5c4a3a;
+
+  --t-fire: #c1462b;
+  --t-earth: #6b5636;
+  --t-water: #2f6f8f;
+  --t-sky: #6fa8c9;
+  --t-shadow: #4a3a5c;
+  --t-light: #b9a666;
+
+  --font-display: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'SF Mono', Consolas, Monaco, monospace;
+}
+
+*{ box-sizing: border-box; }
+html,body{ height:100%; }
+body{
+  margin:0;
+  background: var(--bg-vignette);
+  color: var(--ink-light);
+  font-family: var(--font-ui);
+  min-height:100vh;
+}
+
+.btn{
+  font-family: var(--font-ui);
+  font-size:13px;
+  background: var(--panel-2);
+  color: var(--ink-light);
+  border:1px solid var(--border);
+  padding:8px 14px;
+  border-radius:5px;
+  cursor:pointer;
+  transition: border-color .15s, background .15s;
+  white-space:nowrap;
+}
+.btn:hover{ border-color: var(--gold); background:#2a2338; }
+.btn.primary{ background: linear-gradient(180deg,#2f2743,#251f38); border-color: var(--gold); color: var(--gold-soft); }
+.btn.primary:hover{ background:#352c4b; }

@@ -1,0 +1,248 @@
+Interpreter-specificatie: Minion-Attack & Activated Abilities
+=======================================================================
+STATUS: OPEN VRAGEN — dit document is nog niet klaar om op te bouwen.
+Net als bij Gamerules-specificatie.txt volgen we eerst het antwoord-
+patroon (voorstel + expliciete open vraag) vóór er code geschreven wordt.
+Reden voor de extra behoedzaamheid t.o.v. eerdere rondes: dit is de EERSTE
+keer dat getEffectiveEffects() ergens daadwerkelijk aangeroepen wordt, en
+het raakt de meest gebruikte code in de hele arena (casten, exhausten,
+tellers) — een fout hier is voelbaar in elke testsessie, niet enkel in
+één module.
+
+Context: Wizards-TO-DO.txt Thema 2 (hoogste prioriteit), voortbouwend op
+Gamerules-specificatie.txt (de definitie-laag, al AFGEROND) en
+shared/game-mechanics.js (Fase 4, al AFGEROND voor checkCastLegality/
+tickSlumberOnce/permanent damage).
+
+
+1. DOEL & SCOPE
+---------------
+Enkel de Minion-Attack-ability (isAttack:true) daadwerkelijk laten werken
+in arena.html — dit is de ENIGE activated ability die vandaag volledig
+uitgewerkt is (Gamerules-specificatie.txt sectie 2e). Geen generieke
+TRIGGER-interpreter voor de rest van TRIGGER_LIST, geen condition-parser,
+geen van de nieuwe keyword-ideeën uit "gamerules findings.txt" (die
+hebben eerst hun eigen specificatieronde nodig, zoals Minion die kreeg).
+
+Kleine, afgebakende scope is bewust: dit is een proefcase om te zien of
+het patroon (pure functie in game-mechanics.js + dunne wrapper in
+arena.html, zoals bij checkCastLegality) ook werkt voor iets interactiefs
+als een attack — vóór we het over een veel grotere set keywords
+uitrollen.
+
+
+2. HUIDIGE CODE-SITUATIE (bevindingen, ter voorbereiding — geen vragen)
+------------------------------------------------------------------------
+- checkCastLegality/tickSlumberOnce/permanent-damage staan al in
+  game-mechanics.js als pure functies met expliciete state — dat patroon
+  volgen we hier ook.
+- getEffectiveEffects() bestaat al (game-rules.js) maar wordt NERGENS in
+  arena.html aangeroepen. Dit traject bouwt de eerste call site.
+- De bestaande zoom-overlay ("resem opties" bij het klikken op een
+  kaartfiche — Terug naar hand/Discard/Banish/Exhaust/tellers) is waar
+  activated abilities in het algemeen moeten komen (cfr. beslissing bij
+  vraag A hieronder).
+- Cost-betaling bestaat vandaag enkel voor de kaart-CAST-kost
+  (actionCost/spiteCost, via de autoPayCost-instelling in
+  castCardToStack). Er is nog GEEN mechanisme dat de nieuwe costs[]-array
+  (ExhaustSelf/Spite/Action/Discard/SelfVulnerable, cfr. card-data.js)
+  daadwerkelijk afhandelt.
+- Multiplayer-sync: elke saveArena() broadcast al de VOLLEDIGE
+  arena-state naar de tegenstander (mpBroadcastState, aangeroepen door
+  saveArena() zelf). Er is dus GEEN nieuw host/authority-mechanisme
+  nodig — maar een interactieve stap (bv. "kies welke kaarten je
+  gebruikt om te blokkeren") moet WEL als onderdeel van de arena-state
+  gemodelleerd worden, zodat beide clients dezelfde stand zien en enkel
+  de juiste speler de bijbehorende UI krijgt (cfr.
+  clientOwnedPlayerIdx()).
+- De stack (arena.stack) verwacht vandaag altijd een echte
+  kaart-INSTANTIE (met cardId), getekend als volledige kaartfiche via
+  buildStackCardNode. Relevant voor vraag G hieronder.
+- Shields (bodyShield/mindShield/soulShield) bestaan als gewone
+  spelerscounters, maar worden vandaag UITSLUITEND handmatig bijgesteld
+  (+/- knop op het bord) — er is nog geen enkele automatische koppeling
+  tussen "een kaart doet schade" en "een schild-counter gaat omlaag".
+  Dit traject zou dat voor het eerst automatiseren (zie beslissing
+  hieronder: de counter-WAARDE gaat naar beneden met het schade-bedrag).
+
+
+3. BESLIST (2026-09-09)
+------------------------
+VRAAG A — Activatie-knop
+BESLIST: de Attack-activatie komt bij de bestaande "resem opties" in de
+zoom-overlay (dezelfde lijst als Terug naar hand/Discard/Banish/Exhaust)
+— dat is namelijk waar activated abilities in het algemeen thuishoren,
+niet enkel deze ene. Praktisch: zichtbaar zodra
+getEffectiveEffects(card) minstens één kind:"activated"-effect teruggeeft
+waarvan de costs betaalbaar zijn (of gewoon altijd tonen en pas bij klik
+op onbetaalbaarheid controleren — detail voor stap 2).
+
+VRAAG F — Eigen testinstelling
+BESLIST: ja, achter een eigen vinkje in het tandwiel-menu, net als
+autoPayCost/enforceCastLegality/freeActionSpending/resolveEnabled. Blijft
+voorlopig de standaardwerkwijze voor alle nieuwe automatiseringen, niet
+enkel voor dit ene punt.
+
+VRAAG B + D — SAMENGEVOEGD: het resolutiemechanisme
+BESLIST, drie stappen in volgorde zodra een Attack (of eender welke
+damage) resolvet:
+  1. BLOKKEREN (optioneel, verdediger kiest): de verdediger mag kaarten
+     UIT DE GETARGETTE ZONE selecteren; elke geselecteerde kaart trekt
+     zijn eigen relevante B/M/S-stat af van de binnenkomende damage.
+  2. SCHILD (automatisch): wat na het blokkeren overblijft ("unblocked
+     damage") gaat eerst automatisch op het schild van het
+     overeenkomstige type — de schild-COUNTER-waarde zelf gaat naar
+     beneden met het schade-bedrag (dus Optie 2 uit de vorige versie van
+     dit document: geen vaste -1, maar -waarde).
+  3. BANISH (automatisch): wat na het schild nog overblijft, banisht
+     kaarten uit de getargette zone.
+Dit is dus geen keuze tussen drie ALTERNATIEVEN (schild ÓF sacrifice ÓF
+banish, zoals Gamerules-specificatie.txt sectie 2e nu nog stelt) maar een
+vaste VOLGORDE van drie stappen die na elkaar hetzelfde damage-bedrag
+afbouwen. Zie punt 4 hieronder — dit is een inhoudelijke aanpassing t.o.v.
+de eerder vastgelegde sectie 2e, nog niet doorgevoerd in dat document.
+
+
+4. NIEUWE OPEN DEELVRAGEN (voortvloeiend uit de beslissing hierboven)
+------------------------------------------------------------------------
+Deze zijn kleiner/gerichter dan de vorige ronde, maar wel nodig om stap 1
+te kunnen coderen zonder te gokken:
+
+VRAAG G — "Op de stack" — letterlijk, of gewoon "met priority"?
+Je formulering ("als er een attack... op de stack ligt en deze
+resolvet") doet vermoeden dat een Attack door dezelfde stack/priority/
+Resolve-flow moet lopen als een cast. Technisch obstakel: arena.stack
+verwacht vandaag altijd een echte kaart-INSTANTIE (met cardId, getekend
+als volledige kaartfiche via buildStackCardNode) — een aanvallende
+Minion blijft zelf gewoon getapt in zijn eigen zone liggen, dus letterlijk
+"de Attack op de stack zetten" zou een nieuw soort stack-item vergen dat
+geen kaart is (en dus ook een aanpassing aan buildStackCardNode/
+renderArenaBoard om zoiets te tekenen).
+Twee opties:
+  (g1) Letterlijk op de stack: een synthetisch stack-entry
+       ({ isAbility:true, sourceInstanceId, damageValue, damageType,
+       targetZone, ... } i.p.v. { cardId, ... }) — geeft "gratis" de
+       bestaande priority/Resolve-mechaniek (tegenstander kan nog iets
+       tussendoor casten vóór de Attack resolvet), maar vergt wijzigingen
+       aan de stack-rendering die vandaag overal cardId aanneemt.
+  (g2) Los van de stack: de Attack resolvet meteen bij activatie (geen
+       priority-venster voor de tegenstander), en enkel het BLOKKEREN
+       hierboven (stap 1) is de interactieve stap voor de verdediger —
+       functioneel gelijkaardig resultaat (de verdediger krijgt nog
+       steeds een moment om te reageren), maar zonder de stack-datamodel
+       te moeten uitbreiden.
+-> Welke van de twee bedoelde je? Als (g1): heb je er iets op tegen dat
+   de tegenstander dan, net als bij een gewone cast, nog een kaart mag
+   tussenwerpen vóór de Attack resolvet — of moet een Attack net NIET
+   onderbroken kunnen worden?
+
+VRAAG H — Lot van de geblokkeerde kaarten
+Als de verdediger een kaart selecteert om te blokkeren (stap 1): heeft
+dat voor DIE kaart zelf een gevolg (bv. schade-teller erop, of ze wordt
+zelf getapt), of is blokkeren gratis oftewel "kosteloos" gebruik van zijn
+stat, zonder enig gevolg voor de blokkerende kaart zelf?
+
+VRAAG I — Hoeveel schade absorbeert één geblokkeerde kaart?
+Trekt een geselecteerde kaart zijn VOLLEDIGE relevante stat af (dus een
+kaart met Body 3 trekt altijd 3 af, ongeacht de resterende damage), of
+kan een kaart ook maar gedeeltelijk "verbruikt" worden als de resterende
+damage kleiner is dan zijn stat? (Relevant voor eventuele overkill-
+boekhouding, maar heeft voorlopig geen gevolg zolang blokkeren zelf
+kosteloos is — zie vraag H.)
+
+VRAAG J — Automatisch banishen: welke kaarten, in welke volgorde?
+Bij stap 3 (banish uit de zone): kiest het systeem dit automatisch (en zo
+ja, op basis van welke regel — laagste stat eerst? volgorde in de zone?
+willekeurig?), of moet de verdediger ook hier zelf kiezen welke kaart(en)
+eraan gaan? En verbruikt elke gebanishte kaart zijn eigen stat van de
+resterende damage (zelfde rekenwijze als blokkeren), of banisht één punt
+restschade gewoon exact één kaart, ongeacht diens stat?
+
+VRAAG K — Sectie 2c (permanent-schade/Vulnerable-regel) vs. dit nieuwe
+mechanisme
+De bestaande Vulnerable/Confused/Forlorn-regel (Gamerules-specificatie.txt
+sectie 2c, al gebouwd in addCounterToInstance) doodt een kaart die AL
+Vulnerable was bij de eerstvolgende schade, ongeacht hoeveel. Blijft die
+regel gewoon INTACT en apart bestaan naast dit nieuwe blok/schild/banish-
+mechanisme (bv. voor schade die niet via een Attack maar via de zwarte
+teller in de zoom-view handmatig wordt toegediend), of moet dit nieuwe
+mechanisme die oudere regel vervangen/erin geïntegreerd worden?
+
+Aanbeveling: dit lijkt me een uitstekend moment om Gamerules-
+specificatie.txt sectie 2e ook effectief bij te werken zodra vraag G t.e.m.
+K beantwoord zijn — die sectie beschrijft nu nog de oude
+"kies-één-van-de-drie"-versie. Zal ik dat doen zodra we hier uit zijn, of
+hou je dat liever apart?
+
+
+5. VOORGESTELD STAPPENPLAN (uit te voeren NA de open vragen hierboven)
+------------------------------------------------------------------------
+
+Stap 0 — Vangnet
+Kort, vast smoke-testlijstje specifiek voor dit traject (cfr. Road to
+sustainability Fase 0-gewoonte): bestaande flows die NIET stuk mogen
+gaan — generiek Exhaust/Ready togglen op eender welke kaart, casten van
+een gewone Manifestation zonder Minion-subtype, de bestaande handmatige
+teller-knoppen (+/-), Resolve-flow op de stack.
+
+Stap 1 — Cost-interpreter (klein, herbruikbaar, laag risico)
+Eén pure functie in game-mechanics.js, bv. payCosts(costs, casterPlayer,
+cardInstance), die de costs[]-array afhandelt (ExhaustSelf/Spite/Action/
+Discard/SelfVulnerable) en { ok, reason } teruggeeft — zelfde vorm als
+checkCastLegality. Herbruikbaar voor ELKE toekomstige activated ability,
+niet enkel Minion. Geen UI, geen enkele state-mutatie buiten de kost
+zelf (de aanroeper past pas na een succesvolle { ok:true } de state aan).
+
+Stap 2 — Activatie-knop + eligibility-check
+Attack-optie toevoegen aan de zoom-overlay (cfr. beslissing vraag A).
+Zichtbaarheid o.b.v. getEffectiveEffects(card).some(e => e.isAttack) +
+tapped-status + zone. Roept payCosts() aan; bij succes wordt de kaart
+getapt (met hetzelfde Slumber-gedrag als de bestaande Exhaust-knop) en
+start de attack-flow (stap 3). Bij falen: foutmelding tonen, geen enkele
+state-wijziging — zelfde patroon als checkCastLegalityForArena.
+
+Stap 3 — Zone-schade berekenen
+Pure functie in game-mechanics.js, bv. resolveMinionAttackDamage(card,
+zone), die de stat (body/mind/soul) + het schadetype teruggeeft o.b.v. de
+zone waarin de Minion op dat moment ligt — rechtstreeks overgenomen uit
+Gamerules-specificatie.txt sectie 2c/2e, geen nieuwe regel.
+
+Stap 4 — Op de stack zetten of meteen resolven (invulling hangt af van
+vraag G)
+Bij (g1): synthetisch stack-entry pushen + stack-rendering aanpassen
+voor niet-kaart-entries. Bij (g2): meteen doorgaan naar stap 5.
+
+Stap 5 — Blokkeren/schild/banish-mechanisme (invulling hangt af van
+vragen H/I/J/K)
+Blok-UI voor de verdediger (kaarten uit de zone selecteren) ->
+schade-bedrag herberekenen -> automatische schild-aftrek -> automatische
+banish voor de rest. Elke deelstap een eigen, apart testbare functie in
+game-mechanics.js, zelfde stijl als de rest van dit bestand.
+
+Stap 6 — Testen (uitgebreider dan gewoonlijk, gezien de kritikaliteit)
+- Los, buiten de browser: payCosts()/resolveMinionAttackDamage()/het
+  blok-schild-banish-mechanisme met Node, zelfde patroon als de
+  Gremlin/Mosquito-tests uit Gamerules-specificatie.txt stap 7.
+- In de browser, solo-modus: een testkaart aanmaken (Gremlin-achtig), de
+  volledige attack-cyclus doorlopen (incl. blokkeren), en expliciet
+  controleren dat de bestaande flows (casten, resolven, handmatige
+  tellers, gewoon Exhausten) niets van hun gedrag verloren zijn.
+- Multiplayer-test: met 2 toestellen/tabbladen controleren dat enkel de
+  juiste speler de blok-UI ziet en dat de state bij beide clients na de
+  keuze identiek is.
+
+Stap 7 — Architectuur.txt, deze spec, én Gamerules-specificatie.txt
+sectie 2e bijwerken met datum + resultaat, zelfde gewoonte als bij de
+vorige gamerules-ronde.
+
+
+6. EXPLICIET BUITEN SCOPE (voor nu)
+--------------------------------------
+- Flying-keyword (alternatieve targeting, omzeilt defender's choice)
+- Een generieke TRIGGER-interpreter voor de rest van TRIGGER_LIST
+  (OnPlayed, OnRest, StartOfTurn, ...) — dit document behandelt enkel de
+  ene ACTIVATED/Attack-ability die al volledig gespecificeerd is
+- De condition-parser (vrije condition-string op een effect)
+- De nieuwe keyword-ideeën uit "gamerules findings.txt" (Legacy-map) —
+  die hebben eerst hun eigen Gamerules-specificatie-ronde nodig vóór ze
+  hier aan bod komen

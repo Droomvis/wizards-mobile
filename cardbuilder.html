@@ -7,69 +7,11 @@
 <link rel="stylesheet" href="shared/login-overlay.css">
 <link rel="stylesheet" href="shared/card-render.css">
 <link rel="stylesheet" href="shared/hat-avatar.css">
+<link rel="stylesheet" href="shared/theme.css">
 <style>
-  :root{
-    --bg: #15121c;
-    --bg-vignette: radial-gradient(ellipse at 50% -10%, #241d33 0%, #15121c 55%);
-    --panel: #1e1a29;
-    --panel-2: #241f33;
-    --border: #362c49;
-    --border-soft: #2a2338;
-    --ink-light: #d9d2e8;
-    --ink-muted: #9788b3;
-    --ink-dim: #6f6288;
-    --gold: #c9a24b;
-    --gold-soft: #e2c583;
-    --parchment: #efe6d1;
-    --parchment-dark: #e2d5b5;
-    --parchment-ink: #2c2318;
-    --parchment-chip: #b7a578;
-    --parchment-chip-border: #8f7d4f;
-
-    --c-wizard: #3d5a80;
-    --c-manifestation: #3f6b4a;
-    --c-incantation: #9c3b4f;
-    --c-hex: #5b4b8a;
-    --c-destiny: #b8933a;
-    --c-burden: #5c4a3a;
-
-    --t-fire: #c1462b;
-    --t-earth: #6b5636;
-    --t-water: #2f6f8f;
-    --t-sky: #6fa8c9;
-    --t-shadow: #4a3a5c;
-    --t-light: #b9a666;
-
-    --font-display: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
-    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    --font-mono: 'SF Mono', Consolas, Monaco, monospace;
-  }
-
-  *{ box-sizing: border-box; }
-  html,body{ height:100%; }
-  body{
-    margin:0;
-    background: var(--bg-vignette);
-    color: var(--ink-light);
-    font-family: var(--font-ui);
-    min-height:100vh;
-  }
-
-  .btn{
-    font-family: var(--font-ui);
-    font-size:13px;
-    background: var(--panel-2);
-    color: var(--ink-light);
-    border:1px solid var(--border);
-    padding:8px 14px;
-    border-radius:5px;
-    cursor:pointer;
-    transition: border-color .15s, background .15s;
-    white-space:nowrap;
-  }
-  .btn:hover{ border-color: var(--gold); background:#2a2338; }
-  .btn.primary{ background: linear-gradient(180deg,#2f2743,#251f38); border-color: var(--gold); color: var(--gold-soft); }
-  .btn.primary:hover{ background:#352c4b; }
+  /* ---------- Knoppen (basispatroon .btn/.btn:hover/.btn.primary zit in
+     shared/theme.css — hier enkel nog de varianten die cardbuilder.html
+     apart nodig heeft) ---------- */
   .btn.file-btn{ position:relative; overflow:hidden; display:inline-block; }
   .btn.file-btn input[type=file]{
     position:absolute; inset:0; opacity:0; cursor:pointer; font-size:200px;

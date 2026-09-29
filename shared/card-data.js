@@ -185,6 +185,16 @@ const THEME_COLOR_VAR = {
   Sky:"--t-sky", Shadow:"--t-shadow", Light:"--t-light"
 };
 
+/* -------------------------------------------------------------------------
+   freshCounters (Road to sustainability, Fase 4-vervolg 2026-09-05): stond
+   tot nog toe enkel lokaal in arena.html, maar shared/game-mechanics.js
+   (tickSlumberOnce) had dezelfde vorm nodig en kon de lokale, IIFE-scoped
+   versie in arena.html niet aanroepen — die werd daarom eerst inline
+   gehardcodeerd, wat een tweede kopie van dezelfde {white,black}-vorm
+   opleverde. Hier nu één keer gedefinieerd; arena.html se lokale kopie is
+   verwijderd en game-mechanics.js roept deze versie aan. ------------------- */
+function freshCounters(){ return { white: 0, black: 0 }; }
+
 function uid(){
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
   return "c_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,9);
@@ -268,4 +278,73 @@ function normalizeCard(raw){
     // bestaat. "Afgewerkt"-status is een voorwaarde, geen garantie.
     draftLegal: !!raw.draftLegal
   };
+}
+
+/* -------------------------------------------------------------------------
+   Shuffle (Road to sustainability, Fase 1b): shuffleArray() (arena.html) en
+   shuffled() (draft.html, onder die naam) waren woord-voor-woord hetzelfde
+   Fisher-Yates-algoritme. shuffleArray schudt in-place en geeft dezelfde
+   array terug (het gedrag dat arena.html al overal verwachtte); shuffled()
+   is er nu een dunne wrapper omheen die eerst een kopie maakt, voor de
+   plekken (zoals draft.html) die de invoerarray niet willen muteren. ------- */
+
+function shuffleArray(arr){
+  for (let i = arr.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function shuffled(arr){
+  return shuffleArray(arr.slice());
+}
+
+/* -------------------------------------------------------------------------
+   Deck-export/import (Road to sustainability, Fase 1c): het
+   {name, qty, cards}-bestandsformaat werd apart opnieuw opgebouwd in
+   collectie.html (exportDeck) en draft.html (exportDraftDeck), en apart
+   weer ingelezen in collectie.html (importDeckFromFile) en arena.html
+   (importDeckFromFile/cleanQty) — telkens met de hand overgetypt. --------- */
+
+// Bouwt het exportformaat op uit een deck ({name, qty}) en de collectie
+// (om bij elke cardId de kaartnaam mee op te slaan, puur leesbaarheid/
+// documentatie in het bestand zelf — qty blijft de bron van waarheid bij
+// het opnieuw inladen).
+function buildDeckExportPayload(deck, collection){
+  const qty = deck.qty || {};
+  const cards = Object.entries(qty)
+    .filter(([, q]) => q > 0)
+    .map(([cardId, q]) => {
+      const card = collection.find(c => c.id === cardId);
+      return { id: cardId, name: card ? card.name : null, qty: q };
+    });
+  return { name: deck.name, qty, cards };
+}
+
+// Download-boilerplate (Blob → object-URL → onzichtbare <a> → klik →
+// URL weer vrijgeven) — ongewijzigd overgenomen uit de drie plekken waar
+// dit letterlijk hetzelfde stond.
+function downloadJson(payload, filename){
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename.replace(/[^a-z0-9\-_]/gi, "_") + ".json";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// Leest een geïmporteerd deck-JSON-bestand terug in {name, qty} — inclusief
+// dezelfde qty-opschoning (negatief/NaN/0 eruit) die voorheen apart in
+// collectie.html (inline) en arena.html (als cleanQty) stond.
+function parseDeckImportPayload(json){
+  const rawQty = (json && typeof json.qty === "object" && json.qty) ? json.qty : {};
+  const qty = {};
+  Object.entries(rawQty).forEach(([cardId, n]) => {
+    const num = Math.max(0, parseInt(n) || 0);
+    if (num > 0) qty[cardId] = num;
+  });
+  const name = (json && typeof json.name === "string" && json.name.trim()) ? json.name.trim() : "Geïmporteerd deck";
+  return { name, qty };
 }

@@ -121,6 +121,36 @@ function sortCards(list, sortKey){
   return sorted;
 }
 
+/* -------------------------------------------------------------------------
+   computeCardStats (Road to sustainability, Fase 1a): de typeCounts/avgCost/
+   avgSpite-berekening stond drie keer met de hand overgetypt (collectie.html
+   se renderCollectionStats + renderDeckPanelStats, en draft.html se
+   renderSidebar). `items` is een array van { card, qty } — qty is optioneel
+   en valt terug op 1, zodat zowel een platte kaartenlijst (collectie, draft:
+   elke kaart telt als 1) als een deck-qty-map (waar één kaart meerdere keren
+   meetelt) via dezelfde functie lopen. Geeft { total, typeCounts, avgCost,
+   avgSpite } terug, klaar om in buildStatPillsHtml() te stoppen. */
+function computeCardStats(items){
+  const typeCounts = {};
+  TYPE_LIST.forEach(t => typeCounts[t] = 0);
+  let total = 0, costSum = 0, costCount = 0, spiteSum = 0, spiteCount = 0;
+
+  items.forEach(({ card, qty }) => {
+    const q = qty || 1;
+    total += q;
+    if (typeCounts[card.type] !== undefined) typeCounts[card.type] += q;
+    const cfg = TYPE_CONFIG[card.type];
+    if (cfg && cfg.cost){
+      costSum += (card.actionCost || 0) * q; costCount += q;
+      spiteSum += (card.spiteCost || 0) * q; spiteCount += q;
+    }
+  });
+
+  const avgCost = costCount ? (costSum / costCount).toFixed(1) : "—";
+  const avgSpite = spiteCount ? (spiteSum / spiteCount).toFixed(1) : "—";
+  return { total, typeCounts, avgCost, avgSpite };
+}
+
 // Bouwt de rij "stat-pillen" (totaal, per type, gem. kosten) — gebruikt door
 // zowel de Collectie-stats als de Deck-stats.
 function buildStatPillsHtml(total, typeCounts, avgCost, avgSpite){
