@@ -146,3 +146,36 @@ function isPermanentVulnerable(card, zone, counters){
 function permanentStatusLabel(card, zone, counters){
   return isPermanentVulnerable(card, zone, counters) ? PERMANENT_DAMAGE_LABELS[zone] : "";
 }
+
+// ---- banishForWizardDamage -------------------------------------------------
+// Gevolg van schade aan een WIZARD (los van de permanent-schaderegel hierboven,
+// die geldt voor schade aan een specifieke kaart-instantie): elk schadepunt
+// banisht exact 1 kaart, per schadetype uit een vaste bron — Body: top van het
+// deck (index 0, zoals drawCard/shift), Mind: willekeurig uit de hand, Soul:
+// willekeurig uit de discard (cfr. Interpreter-specificatie sectie 3 stap 3 en
+// Gamerules-specificatie.txt 2f punt 3). Schild en offeren zitten er bewust NIET
+// in: die mitigatie gebeurt (voorlopig) manueel door het schadebedrag aan te
+// passen vóór deze functie wordt aangeroepen.
+//
+// player: het player-object uit arena.players[idx]. Muteert dat object in-place
+// (kaarten gaan naar player.banished, met tapped/counters gereset zoals bij een
+// gewone zone-wissel). Zijn er minder kaarten in de bron dan schade, dan wordt
+// gebanisht wat er is. Geeft { sourceZone, wanted, banished[], shortfall } terug.
+const WIZARD_DAMAGE_SOURCE_ZONE = { body: "deck", mind: "hand", soul: "discard" };
+
+function banishForWizardDamage(player, damageType, amount){
+  const wanted = Math.max(0, parseInt(amount, 10) || 0);
+  const sourceZone = WIZARD_DAMAGE_SOURCE_ZONE[damageType] || null;
+  const banished = [];
+  if (!sourceZone) return { sourceZone: null, wanted, banished, shortfall: wanted };
+  const pile = player[sourceZone];
+  while (banished.length < wanted && pile.length > 0){
+    const idx = damageType === "body" ? 0 : Math.floor(Math.random() * pile.length);
+    const ci = pile.splice(idx, 1)[0];
+    ci.tapped = false;
+    ci.counters = freshCounters();
+    player.banished.push(ci);
+    banished.push(ci);
+  }
+  return { sourceZone, wanted, banished, shortfall: wanted - banished.length };
+}

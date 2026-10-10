@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wizards — Wizard Draft</title>
+<style>
+  /* Fallback-tokens (zelfde namen als shared/theme.css). Staat bewust VÓÓR de
+     <link> hieronder, zodat theme.css — indien aanwezig — wint. */
+  :root{
+    --bg:#141019; --panel:#1c1626; --panel-2:#241d31; --border:#3a3050; --border-soft:#2b2339;
+    --gold:#c9a24b; --gold-soft:#e6c981;
+    --ink:#d8d0e6; --ink-light:#ece6f5; --ink-muted:#a79db8; --ink-dim:#7f7592;
+    --parchment:#e9dcc0; --parchment-ink:#2d2417;
+    --stat-body:#c0564a; --stat-mind:#5a8fd0; --stat-soul:#8e6fc4;
+    --danger:#c0564a;
+    --font-display: Georgia, "Palatino Linotype", "Book Antiqua", serif;
+    --font-mono: ui-monospace, "SF Mono", Consolas, monospace;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui, "Segoe UI", sans-serif; }
+  .btn{
+    font-family:var(--font-display); font-size:12.5px; background:var(--panel-2); color:var(--ink-light);
+    border:1px solid var(--border); padding:8px 14px; border-radius:5px; cursor:pointer; transition:border-color .15s, background .15s;
+  }
+  .btn:hover{ border-color:var(--gold); }
+  .btn.primary{ border-color:var(--gold); color:var(--gold-soft); background:linear-gradient(180deg,#2f2743,#251f38); }
+  .btn.primary:hover{ background:#352c4d; }
+</style>
+<link rel="stylesheet" href="shared/theme.css">
+<style>
+  .btn.btn-subtle{ font-size:11.5px; padding:6px 10px; color:var(--ink-dim); opacity:.85; }
+  .btn.btn-subtle:hover{ opacity:1; }
+  .btn.btn-danger:hover{ border-color:var(--danger); color:var(--danger); }
+  .btn:disabled{ opacity:.35; cursor:default; pointer-events:none; }
+
+  /* ---------- Topbalk / tabs ---------- */
+  #topbar{ display:flex; align-items:center; gap:18px; flex-wrap:wrap; padding:0 24px; border-bottom:1px solid var(--border); background:var(--panel); }
+  #topbar h1{ font-family:var(--font-display); font-size:17px; color:var(--gold-soft); margin:0; padding:14px 0; letter-spacing:.3px; font-weight:normal; }
+  .tab{
+    background:none; border:none; border-bottom:2px solid transparent; color:var(--ink-muted);
+    font-family:var(--font-display); font-size:14px; padding:15px 6px 13px; cursor:pointer;
+  }
+  .tab:hover{ color:var(--ink-light); }
+  .tab.active{ color:var(--gold-soft); border-bottom-color:var(--gold); }
+  #topbar .spacer{ flex:1; }
+  .view{ display:none; }
+  .view.active{ display:block; }
+
+  /* ---------- Draft-layout (zelfde opzet als draft.html) ---------- */
+  #draft-layout{ display:flex; align-items:flex-start; min-height:calc(100vh - 50px); }
+  #draft-main{ flex:1; min-width:0; padding:28px 32px; }
+  #draft-sidebar{ width:320px; flex-shrink:0; border-left:1px solid var(--border); background:var(--panel); min-height:calc(100vh - 50px); padding:16px; }
+  #draft-header{ display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:6px; }
+  #draft-title{ font-family:var(--font-display); font-size:24px; color:var(--gold-soft); margin:0; font-weight:normal; letter-spacing:.3px; }
+  #draft-progress{ font-size:12.5px; color:var(--ink-dim); }
+  #draft-header .spacer{ flex:1; }
+  .step-hint{ color:var(--ink-muted); font-size:13.5px; margin:0 0 20px; max-width:560px; }
+  .sidebar-title{ font-family:var(--font-display); font-size:15px; color:var(--gold-soft); margin-bottom:10px; }
+
+  .text-input, .field input[type=text], .field input[type=number], .field select, .field textarea, .mini-input{
+    background:var(--bg); border:1px solid var(--border); color:var(--ink-light);
+    padding:9px 12px; border-radius:5px; font-size:13.5px; font-family:inherit; width:100%;
+  }
+  .text-input:focus, .field input:focus, .field select:focus, .field textarea:focus, .mini-input:focus{ outline:none; border-color:var(--gold); }
+  #name-input{ font-family:var(--font-display); font-size:20px; max-width:420px; padding:12px 14px; }
+  .nav-row{ display:flex; gap:10px; margin-top:26px; flex-wrap:wrap; }
+
+  /* ---------- Aanbod-kaarten ---------- */
+  #offer-row{ display:flex; gap:22px; flex-wrap:wrap; margin-top:6px; }
+  .offer-slot{
+    width:250px; cursor:pointer; border-radius:12px; padding:16px 16px 14px;
+    background:var(--panel-2); border:2px solid var(--border);
+    transition:border-color .15s, transform .12s, background .15s;
+    display:flex; flex-direction:column; gap:10px;
+  }
+  .offer-slot:hover{ border-color:var(--gold); background:rgba(201,162,75,.08); transform:translateY(-5px); }
+  .offer-slot.chosen{ border-color:var(--gold); }
+  .offer-label{ font-family:var(--font-display); font-size:17px; color:var(--ink-light); }
+  .offer-moniker{ font-size:12px; color:var(--gold-soft); font-style:italic; }
+  .offer-text{ font-size:12.5px; color:var(--ink-muted); white-space:pre-wrap; border-top:1px solid var(--border-soft); padding-top:9px; }
+  .empty-note{ color:var(--ink-dim); font-size:13.5px; font-style:italic; }
+
+  /* ---------- Stat-pillen ---------- */
+  .pills{ display:flex; gap:6px; flex-wrap:wrap; }
+  .pill{ display:flex; align-items:center; gap:5px; background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:3px 9px; font-size:11.5px; color:var(--ink-muted); }
+  .pill b{ font-family:var(--font-mono); color:var(--ink-light); }
+  .pill.pos b{ color:#7fc98a; } .pill.neg b{ color:#e0786c; }
+  .pill .sw{ width:8px; height:8px; border-radius:50%; }
+
+  /* ---------- Gezichtsupload ---------- */
+  #face-drop{
+    width:220px; height:220px; border:2px dashed var(--border); border-radius:12px; background:var(--panel-2);
+    display:flex; align-items:center; justify-content:center; text-align:center; color:var(--ink-dim);
+    cursor:pointer; overflow:hidden; transition:border-color .15s;
+  }
+  #face-drop:hover{ border-color:var(--gold); color:var(--gold-soft); }
+  #face-drop img{ width:100%; height:100%; object-fit:cover; display:block; }
+
+  /* ---------- Wizard-kaart (live voorbeeld) ---------- */
+  .wcard{
+    background:linear-gradient(180deg,#f0e4c8,#e2d3b0); color:var(--parchment-ink);
+    border:3px solid #6b5420; border-radius:14px; padding:12px; box-shadow:0 6px 22px rgba(0,0,0,.45);
+    display:flex; flex-direction:column; gap:9px;
+  }
+  .wcard-name{ font-family:var(--font-display); font-size:17px; font-weight:bold; line-height:1.25; text-align:center; border-bottom:1px solid rgba(107,84,32,.45); padding-bottom:7px; }
+  .wcard-type{ font-size:10.5px; letter-spacing:1.2px; text-transform:uppercase; text-align:center; color:#6b5420; margin-top:-3px; }
+  .wcard-art{ aspect-ratio:1/1; background:#cdbd96; border:2px solid #6b5420; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:56px; color:#8a7440; overflow:hidden; }
+  .wcard-art img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .wcard-stats{ display:flex; gap:7px; justify-content:center; }
+  .wstat{ flex:1; text-align:center; border:2px solid #6b5420; border-radius:8px; padding:4px 2px; background:rgba(255,255,255,.35); }
+  .wstat .v{ font-family:var(--font-display); font-size:22px; font-weight:bold; line-height:1.1; }
+  .wstat .k{ font-size:10px; text-transform:uppercase; letter-spacing:.8px; color:#6b5420; }
+  .wstat.body .v{ color:#a23f33; } .wstat.mind .v{ color:#2f66a8; } .wstat.soul .v{ color:#6a4aa3; }
+  .wcard-text{ font-size:12px; line-height:1.4; min-height:54px; border:1px solid rgba(107,84,32,.45); border-radius:6px; padding:7px 9px; background:rgba(255,255,255,.28); white-space:pre-wrap; }
+  .wcard-text .src{ display:block; margin-bottom:5px; }
+  .wcard-text .none{ color:#8a7a58; font-style:italic; }
+  .sidebar-section-label{ font-size:10.5px; text-transform:uppercase; letter-spacing:.8px; color:var(--ink-dim); margin:16px 0 6px; }
+  #done-box{ max-width:560px; }
+  #done-box p{ color:var(--ink-muted); }
+
+  /* ---------- Modifier-manager ---------- */
+  #mod-layout{ display:flex; align-items:flex-start; min-height:calc(100vh - 50px); }
+  #mod-list-pane{ width:340px; flex-shrink:0; border-right:1px solid var(--border); background:var(--panel); min-height:calc(100vh - 50px); display:flex; flex-direction:column; }
+  #mod-list-head{ padding:14px; border-bottom:1px solid var(--border-soft); display:flex; flex-direction:column; gap:10px; }
+  .filter-row{ display:flex; gap:6px; flex-wrap:wrap; }
+  .chip{ background:var(--panel-2); border:1px solid var(--border); color:var(--ink-muted); border-radius:14px; padding:3px 11px; font-size:11.5px; cursor:pointer; }
+  .chip:hover{ border-color:var(--gold); }
+  .chip.on{ border-color:var(--gold); color:var(--gold-soft); background:#2a2338; }
+  #mod-list{ list-style:none; margin:0; padding:6px; overflow:auto; }
+  #mod-list li{ padding:8px 10px; border-radius:6px; cursor:pointer; display:flex; flex-direction:column; gap:2px; border:1px solid transparent; }
+  #mod-list li:hover{ background:var(--panel-2); }
+  #mod-list li.sel{ background:#2a2338; border-color:var(--gold); }
+  #mod-list .m-label{ color:var(--ink-light); font-size:13px; }
+  #mod-list .m-sub{ font-size:11px; color:var(--ink-dim); display:flex; gap:8px; flex-wrap:wrap; }
+  #mod-list .m-sub .st{ color:var(--gold); }
+  #mod-list-foot{ margin-top:auto; padding:12px 14px; border-top:1px solid var(--border-soft); display:flex; gap:8px; flex-wrap:wrap; }
+  #mod-edit-pane{ flex:1; min-width:0; padding:26px 32px; max-width:760px; }
+  #mod-edit-pane h2{ font-family:var(--font-display); font-weight:normal; color:var(--gold-soft); font-size:20px; margin:0 0 16px; }
+  .field{ display:flex; flex-direction:column; gap:5px; margin-bottom:14px; }
+  .field > label{ font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--ink-dim); }
+  .field textarea{ min-height:96px; resize:vertical; }
+  .field .hint{ font-size:12px; color:var(--ink-dim); }
+  .stat-row{ display:flex; gap:16px; flex-wrap:wrap; }
+  .stepper{ display:flex; align-items:center; gap:0; }
+  .stepper button{ background:var(--panel-2); border:1px solid var(--border); color:var(--ink-light); width:30px; height:34px; cursor:pointer; font-size:16px; }
+  .stepper button:first-child{ border-radius:5px 0 0 5px; } .stepper button:last-child{ border-radius:0 5px 5px 0; }
+  .stepper button:hover{ border-color:var(--gold); color:var(--gold-soft); }
+  .stepper input{ width:54px !important; text-align:center; border-radius:0 !important; font-family:var(--font-mono); }
+  .stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+  .stepper input[type=number]{ -moz-appearance:textfield; }
+  .edit-actions{ display:flex; gap:10px; margin-top:8px; flex-wrap:wrap; }
+  #settings-box{ border:1px solid var(--border); border-radius:8px; background:var(--panel); margin-bottom:22px; }
+  #settings-box summary{ cursor:pointer; padding:10px 14px; font-family:var(--font-display); color:var(--gold-soft); font-size:14px; }
+  #settings-inner{ padding:4px 14px 6px; }
+  .preview-line{ font-family:var(--font-display); color:var(--gold-soft); font-size:15px; background:var(--bg); border:1px solid var(--border-soft); border-radius:6px; padding:9px 12px; }
+
+  #toast{ position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--panel-2); border:1px solid var(--gold); color:var(--gold-soft); padding:9px 18px; border-radius:6px; font-size:13px; opacity:0; pointer-events:none; transition:opacity .2s; z-index:50; }
+  #toast.show{ opacity:1; }
+
+  @media (max-width:900px){
+    #draft-layout, #mod-layout{ flex-direction:column; }
+    #draft-sidebar{ width:100%; min-height:0; border-left:none; border-top:1px solid var(--border); }
+    #mod-list-pane{ width:100%; min-height:0; border-right:none; border-bottom:1px solid var(--border); }
+    #draft-main, #mod-edit-pane{ padding:20px; }
+    .offer-slot{ width:100%; }
+  }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>⟡ Wizards — Wizard Draft</h1>
+  <button class="tab active" data-tab="draft">Draften</button>
+  <button class="tab" data-tab="mods">Modifiers</button>
+  <span class="spacer"></span>
+</div>
+
+<!-- ======================= TAB: DRAFTEN ======================= -->
+<div id="view-draft" class="view active">
+  <div id="draft-layout">
+    <div id="draft-main"></div>
+    <aside id="draft-sidebar">
+      <div class="sidebar-title">Je Wizard</div>
+      <div id="live-card"></div>
+      <div class="sidebar-section-label">Gekozen</div>
+      <div id="live-picks" class="pills" style="flex-direction:column;align-items:flex-start;"></div>
+    </aside>
+  </div>
+</div>
+
+<!-- ======================= TAB: MODIFIERS ======================= -->
+<div id="view-mods" class="view">
+  <div id="mod-layout">
+    <div id="mod-list-pane">
+      <div id="mod-list-head">
+        <div class="filter-row" id="mod-filter"></div>
+        <input type="text" class="mini-input" id="mod-search" placeholder="Zoeken…">
+        <button class="btn primary" id="mod-new">+ Nieuwe modifier</button>
+      </div>
+      <ul id="mod-list"></ul>
+      <div id="mod-list-foot">
+        <button class="btn btn-subtle" id="mod-export">Exporteer .json</button>
+        <button class="btn btn-subtle" id="mod-import">Importeer .json</button>
+        <button class="btn btn-subtle btn-danger" id="mod-clear">Alles wissen</button>
+        <input type="file" id="mod-import-file" accept=".json,application/json" style="display:none">
+      </div>
+    </div>
+    <div id="mod-edit-pane"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<input type="file" id="face-file" accept="image/*" style="display:none">
+
+<script>
+(function(){
+  "use strict";
+
+  /* ============================================================
+     Data
+     ============================================================ */
+  const LS_KEY = "wizards_wizarddraft_v1";
+  const STEPS = [
+    { key:"dwell",   n:2, q:"Where do you dwell?",        nl:"Verblijfplaats", ex:"of Elkwood" },
+    { key:"deed",    n:3, q:"What did you do?",           nl:"Daad",           ex:"Scourge" },
+    { key:"epithet", n:4, q:"What do they call you?",     nl:"Bijnaam",        ex:"the Small Minded" }
+  ];
+  const STEP_BY_KEY = Object.fromEntries(STEPS.map(s => [s.key, s]));
+  const DEFAULT_SETTINGS = { baseBody:3, baseMind:3, baseSoul:3, offerCount:3, template:"{name} {epithet}, {deed} {dwell}" };
+
+  function uid(){ return "m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+  function toInt(v){ const n = parseInt(v, 10); return isNaN(n) ? 0 : n; }
+
+  function seedModifiers(){
+    const mk = (step, label, moniker, b, m, s, gameText) => ({ id:uid(), step, label, moniker, body:b, mind:m, soul:s, gameText });
+    return [
+      mk("dwell","Elkwood","of Elkwood", 1,0,-1,"Start the game with 1 additional Chore in your deck."),
+      mk("dwell","The Swamp Hut","of the Mire", 0,1,0,"Start the game with 1 Fear in your deck."),
+      mk("dwell","A Tower Too Tall","of the High Tower", -1,2,0,""),
+      mk("deed","Burned a library","Scourge", 0,-1,1,""),
+      mk("deed","Won a duel by default","the Undefeated", 1,0,0,"Your first Hex each duel costs 1 less Spite."),
+      mk("deed","Wrote a treatise","Scholar", -1,1,1,""),
+      mk("epithet","Small Minded","the Small Minded", 1,-1,0,""),
+      mk("epithet","Vain","the Magnificent", 0,0,1,"At the start of a duel, gain 1 Spite."),
+      mk("epithet","Hat-Obsessed","Hat-Wearer", 0,1,-1,"")
+    ];
+  }
+
+  let DB = { settings:Object.assign({}, DEFAULT_SETTINGS), modifiers:[] };
+
+  function loadDB(){
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw){
+        const p = JSON.parse(raw);
+        DB.settings = Object.assign({}, DEFAULT_SETTINGS, p.settings || {});
+        DB.modifiers = Array.isArray(p.modifiers) ? p.modifiers.map(normMod) : [];
+        return;
+      }
+    } catch(e){ /* corrupt or unavailable: fall through to seed */ }
+    DB.modifiers = seedModifiers();
+    saveDB();
+  }
+  function saveDB(){ try { localStorage.setItem(LS_KEY, JSON.stringify(DB)); } catch(e){ /* storage unavailable */ } }
+
+  function normMod(m){
+    return {
+      id: m.id || uid(),
+      step: STEP_BY_KEY[m.step] ? m.step : "dwell",
+      label: String(m.label || ""),
+      moniker: String(m.moniker || ""),
+      body: toInt(m.body), mind: toInt(m.mind), soul: toInt(m.soul),
+      gameText: String(m.gameText || "")
+    };
+  }
+  function modsFor(step){ return DB.modifiers.filter(m => m.step === step); }
+  function modById(id){ return DB.modifiers.find(m => m.id === id) || null; }
+
+  /* ============================================================
+     Wizard-berekening
+     ============================================================ */
+  const D = { step:0, name:"", picks:{ dwell:null, deed:null, epithet:null }, offers:{}, face:null };
+
+  function chosenMods(){ return STEPS.map(s => modById(D.picks[s.key])).filter(Boolean); }
+
+  function computeWizard(){
+    const st = DB.settings;
+    const mods = chosenMods();
+    const stats = {
+      body: st.baseBody + mods.reduce((a, m) => a + m.body, 0),
+      mind: st.baseMind + mods.reduce((a, m) => a + m.mind, 0),
+      soul: st.baseSoul + mods.reduce((a, m) => a + m.soul, 0)
+    };
+    ["body","mind","soul"].forEach(k => { if (stats[k] < 0) stats[k] = 0; });
+    const texts = mods.filter(m => m.gameText.trim()).map(m => ({ src:m.label, text:m.gameText.trim() }));
+    return { name: composeName(D.name, D.picks, st.template), stats, texts, mods };
+  }
+
+  function composeName(base, picks, template){
+    const part = key => { const m = modById(picks[key]); return m ? m.moniker.trim() : ""; };
+    let s = (template || DEFAULT_SETTINGS.template)
+      .replace(/\{name\}/g, base.trim() || "Nameless")
+      .replace(/\{dwell\}/g, part("dwell"))
+      .replace(/\{deed\}/g, part("deed"))
+      .replace(/\{epithet\}/g, part("epithet"));
+    s = s.replace(/\s+/g, " ")
+         .replace(/\s+,/g, ",")
+         .replace(/(,\s*)+,/g, ",")
+         .replace(/,\s*$/, "")
+         .trim();
+    return s;
+  }
+
+  /* ============================================================
+     Hulpfuncties UI
+     ============================================================ */
+  const $ = id => document.getElementById(id);
+  let toastTimer = null;
+  function toast(msg){ const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2200); }
+
+  function deltaPills(m){
+    const one = (k, label, color) => {
+      const v = m[k];
+      if (!v) return "";
+      return `<span class="pill ${v > 0 ? "pos" : "neg"}"><span class="sw" style="background:${color}"></span>${label} <b>${v > 0 ? "+" : ""}${v}</b></span>`;
+    };
+    const html = one("body","Body","var(--stat-body)") + one("mind","Mind","var(--stat-mind)") + one("soul","Soul","var(--stat-soul)");
+    return html || `<span class="pill">geen statwijziging</span>`;
+  }
+
+  function shuffled(arr){ const a = arr.slice(); for (let i = a.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+  function offerFor(stepKey){
+    const pool = modsFor(stepKey);
+    const n = DB.settings.offerCount;
+    let ids = (D.offers[stepKey] || []).filter(id => modById(id));
+    if (!ids.length){
+      ids = (n > 0 && pool.length > n ? shuffled(pool).slice(0, n) : pool).map(m => m.id);
+      D.offers[stepKey] = ids;
+    }
+    // een eerder gekozen modifier moet bij terugkeren zichtbaar blijven
+    const picked = D.picks[stepKey];
+    if (picked && modById(picked) && ids.indexOf(picked) < 0) ids = ids.concat(picked);
+    return ids.map(modById).filter(Boolean);
+  }
+
+  /* ============================================================
+     TAB: DRAFTEN — render
+     ============================================================ */
+  function renderDraft(){
+    const main = $("draft-main");
+    const total = 5;
+    const stepNo = Math.min(D.step + 1, total);
+    let html = `<div id="draft-header"><h2 id="draft-title">${titleFor()}</h2><span id="draft-progress">${D.step < 5 ? "Stap " + stepNo + " / " + total : "Klaar"}</span><span class="spacer"></span><button class="btn btn-subtle" id="d-restart">Opnieuw beginnen</button></div>`;
+
+    if (D.step === 0){
+      html += `<p class="step-hint">Puur cosmetisch: dit wordt de eerste naam van je Wizard.</p>
+        <input type="text" class="text-input" id="name-input" placeholder="Sarpa" maxlength="40" value="${esc(D.name)}" autocomplete="off">
+        <div class="nav-row"><button class="btn primary" id="d-next" ${D.name.trim() ? "" : "disabled"}>Volgende →</button></div>`;
+    } else if (D.step >= 1 && D.step <= 3){
+      const s = STEPS[D.step - 1];
+      const offers = offerFor(s.key);
+      html += `<p class="step-hint">Kies één optie. Stats en game text van je Wizard (en een stukje van zijn naam) worden erdoor aangepast.</p>`;
+      if (!offers.length){
+        html += `<p class="empty-note">Er zijn nog geen modifiers voor deze stap. Voeg er toe in het tabblad Modifiers (stap “${esc(s.nl)}”), of sla deze stap over.</p>`;
+      } else {
+        html += `<div id="offer-row">` + offers.map(m => `
+          <div class="offer-slot ${D.picks[s.key] === m.id ? "chosen" : ""}" data-pick="${esc(m.id)}">
+            <div class="offer-label">${esc(m.label)}</div>
+            ${m.moniker.trim() ? `<div class="offer-moniker">“${esc(m.moniker)}”</div>` : ""}
+            <div class="pills">${deltaPills(m)}</div>
+            ${m.gameText.trim() ? `<div class="offer-text">${esc(m.gameText)}</div>` : ""}
+          </div>`).join("") + `</div>`;
+      }
+      html += `<div class="nav-row">
+          <button class="btn" id="d-back">← Terug</button>
+          ${D.picks[s.key] ? `<button class="btn" id="d-next">Behouden &amp; verder →</button>` : ""}
+          <button class="btn btn-subtle" id="d-skip">Overslaan</button>
+        </div>`;
+    } else if (D.step === 4){
+      html += `<p class="step-hint">Upload een afbeelding van je lokale schijf. Ze blijft in je browser; de afbeelding wordt verkleind tot max. 512 px.</p>
+        <div id="face-drop" title="Klik om een afbeelding te kiezen">${D.face ? `<img src="${D.face}" alt="">` : `<span>Klik om een<br>afbeelding te kiezen</span>`}</div>
+        <div class="nav-row">
+          <button class="btn" id="d-back">← Terug</button>
+          <button class="btn primary" id="d-finish">Wizard voltooien ✓</button>
+          ${D.face ? `<button class="btn btn-subtle" id="d-clearface">Afbeelding verwijderen</button>` : ""}
+        </div>`;
+    } else {
+      const w = computeWizard();
+      html += `<div id="done-box"><p>Je Wizard is klaar: <b style="color:var(--gold-soft);font-family:var(--font-display)">${esc(w.name)}</b>.</p>
+        <div class="nav-row">
+          <button class="btn primary" id="d-export">Exporteer Wizard (.json)</button>
+          <button class="btn" id="d-back">← Terug</button>
+          <button class="btn" id="d-restart2">Nieuwe Wizard</button>
+        </div></div>`;
+    }
+    main.innerHTML = html;
+    renderSidebar();
+  }
+
+  function titleFor(){
+    if (D.step === 0) return "What is your name?";
+    if (D.step >= 1 && D.step <= 3) return STEPS[D.step - 1].q;
+    if (D.step === 4) return "Which is your face?";
+    return "Your Wizard";
+  }
+
+  function renderSidebar(){
+    const w = computeWizard();
+    const stat = (k, label) => `<div class="wstat ${k}"><div class="v">${w.stats[k]}</div><div class="k">${label}</div></div>`;
+    $("live-card").innerHTML = `
+      <div class="wcard">
+        <div class="wcard-name">${esc(w.name)}</div>
+        <div class="wcard-type">Wizard</div>
+        <div class="wcard-art">${D.face ? `<img src="${D.face}" alt="">` : "⟡"}</div>
+        <div class="wcard-stats">${stat("body","Body")}${stat("mind","Mind")}${stat("soul","Soul")}</div>
+        <div class="wcard-text">${w.texts.length ? w.texts.map(t => `<span class="src">${esc(t.text)}</span>`).join("") : `<span class="none">Geen game text.</span>`}</div>
+      </div>`;
+    const picks = w.mods;
+    $("live-picks").innerHTML = picks.length
+      ? picks.map(m => `<span class="pill"><span style="color:var(--ink-dim)">${esc(STEP_BY_KEY[m.step].nl)}:</span> <b style="font-family:inherit">${esc(m.label)}</b></span>`).join("")
+      : `<span class="empty-note" style="font-size:12px">Nog niets gekozen.</span>`;
+  }
+
+  /* Gezicht: inlezen + verkleinen */
+  function loadFace(file){
+    if (!file || !/^image\//.test(file.type)) { toast("Dat is geen afbeelding."); return; }
+    const r = new FileReader();
+    r.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const max = 512, sc = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(img.width * sc)); c.height = Math.max(1, Math.round(img.height * sc));
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        D.face = c.toDataURL("image/jpeg", 0.88);
+        renderDraft();
+      };
+      img.onerror = () => toast("Afbeelding kon niet gelezen worden.");
+      img.src = r.result;
+    };
+    r.readAsDataURL(file);
+  }
+
+  function exportWizard(){
+    const w = computeWizard();
+    const payload = {
+      type: "Wizard",
+      name: w.name,
+      baseName: D.name.trim(),
+      stats: w.stats,
+      gameText: w.texts.map(t => t.text).join("\n"),
+      picks: w.mods.map(m => ({ step:m.step, id:m.id, label:m.label, moniker:m.moniker })),
+      face: D.face
+    };
+    download(payload, (D.name.trim() || "wizard").replace(/[^\w\-]+/g, "_") + ".json");
+  }
+
+  function download(obj, filename){
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type:"application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  function resetDraft(){ D.step = 0; D.name = ""; D.picks = { dwell:null, deed:null, epithet:null }; D.offers = {}; D.face = null; renderDraft(); }
+
+  /* Event delegation: draft */
+  $("draft-main").addEventListener("click", e => {
+    const t = e.target.closest("button, .offer-slot, #face-drop");
+    if (!t) return;
+    if (t.classList.contains("offer-slot")){
+      const s = STEPS[D.step - 1];
+      D.picks[s.key] = t.getAttribute("data-pick");
+      D.step++; renderDraft(); return;
+    }
+    switch (t.id){
+      case "d-next":   D.step++; renderDraft(); break;
+      case "d-back":   D.step = Math.max(0, D.step - 1); renderDraft(); break;
+      case "d-skip":   { const s = STEPS[D.step - 1]; D.picks[s.key] = null; D.step++; renderDraft(); break; }
+      case "d-finish": D.step = 5; renderDraft(); break;
+      case "d-clearface": D.face = null; renderDraft(); break;
+      case "d-export": exportWizard(); break;
+      case "d-restart":
+      case "d-restart2": if (D.step === 0 && !D.name || confirm("Opnieuw beginnen? Je huidige keuzes gaan verloren.")) resetDraft(); break;
+      case "face-drop": $("face-file").click(); break;
+    }
+  });
+  $("draft-main").addEventListener("input", e => {
+    if (e.target.id === "name-input"){
+      D.name = e.target.value;
+      const nb = $("d-next"); if (nb) nb.disabled = !D.name.trim();
+      renderSidebar();
+    }
+  });
+  $("draft-main").addEventListener("keydown", e => {
+    if (e.target.id === "name-input" && e.key === "Enter" && D.name.trim()){ D.step = 1; renderDraft(); }
+  });
+  $("face-file").addEventListener("change", e => { const f = e.target.files[0]; e.target.value = ""; if (f) loadFace(f); });
+
+  /* ============================================================
+     TAB: MODIFIERS — manager
+     ============================================================ */
+  const M = { filter:"all", search:"", sel:null };
+
+  function renderFilter(){
+    const items = [{ k:"all", l:"Alle" }].concat(STEPS.map(s => ({ k:s.key, l:s.nl })));
+    $("mod-filter").innerHTML = items.map(i => `<button class="chip ${M.filter === i.k ? "on" : ""}" data-f="${i.k}">${i.l}</button>`).join("");
+  }
+
+  function renderList(){
+    const q = M.search.trim().toLowerCase();
+    const rows = DB.modifiers.filter(m =>
+      (M.filter === "all" || m.step === M.filter) &&
+      (!q || (m.label + " " + m.moniker + " " + m.gameText).toLowerCase().indexOf(q) >= 0)
+    ).sort((a, b) => STEPS.findIndex(s => s.key === a.step) - STEPS.findIndex(s => s.key === b.step) || a.label.localeCompare(b.label));
+    $("mod-list").innerHTML = rows.length ? rows.map(m => `
+      <li data-id="${esc(m.id)}" class="${M.sel === m.id ? "sel" : ""}">
+        <span class="m-label">${esc(m.label) || "<i>(zonder naam)</i>"}</span>
+        <span class="m-sub"><span class="st">${esc(STEP_BY_KEY[m.step].nl)}</span>${m.moniker ? `<span>“${esc(m.moniker)}”</span>` : ""}<span>${["body","mind","soul"].map(k => m[k] ? (k[0].toUpperCase() + (m[k] > 0 ? "+" : "") + m[k]) : "").filter(Boolean).join(" ")}</span></span>
+      </li>`).join("") : `<li style="cursor:default"><span class="empty-note">Geen modifiers gevonden.</span></li>`;
+  }
+
+  function stepper(field, val){
+    return `<div class="stepper"><button type="button" data-step="${field}" data-d="-1">−</button><input type="number" data-f="${field}" value="${val}"><button type="button" data-step="${field}" data-d="1">+</button></div>`;
+  }
+
+  function renderEdit(){
+    const st = DB.settings;
+    const settingsHtml = `
+      <details id="settings-box">
+        <summary>Instellingen (basisstats, naamsjabloon, aantal opties)</summary>
+        <div id="settings-inner">
+          <div class="field"><label>Basisstats van een nieuwe Wizard</label>
+            <div class="stat-row">
+              <div><div class="hint">Body</div>${stepper("s:baseBody", st.baseBody)}</div>
+              <div><div class="hint">Mind</div>${stepper("s:baseMind", st.baseMind)}</div>
+              <div><div class="hint">Soul</div>${stepper("s:baseSoul", st.baseSoul)}</div>
+            </div></div>
+          <div class="field"><label>Aantal opties per draft-stap (0 = alle)</label>${stepper("s:offerCount", st.offerCount)}
+            <span class="hint">Staat dit lager dan het aantal modifiers in een stap, dan worden er willekeurig zoveel getoond.</span></div>
+          <div class="field"><label>Naamsjabloon</label>
+            <input type="text" data-f="s:template" value="${esc(st.template)}">
+            <span class="hint">Gebruik {name}, {epithet}, {deed} en {dwell}. Lege delen vallen weg, inclusief hun komma.</span>
+            <div class="preview-line" id="tpl-preview"></div></div>
+        </div>
+      </details>`;
+    const m = M.sel ? modById(M.sel) : null;
+    let html = settingsHtml;
+    if (!m){
+      html += `<h2>Modifier-manager</h2><p class="empty-note">Kies links een modifier om te bewerken, of maak een nieuwe aan.</p>`;
+    } else {
+      html += `<h2>Modifier bewerken</h2>
+        <div class="field"><label>Stap</label>
+          <select data-f="step">${STEPS.map(s => `<option value="${s.key}" ${m.step === s.key ? "selected" : ""}>${s.n}. ${esc(s.q)} (${esc(s.nl)})</option>`).join("")}</select></div>
+        <div class="field"><label>Keuzenaam (zoals getoond in de draft)</label><input type="text" data-f="label" value="${esc(m.label)}" placeholder="Elkwood"></div>
+        <div class="field"><label>Moniker (komt in de naam van de Wizard)</label><input type="text" data-f="moniker" value="${esc(m.moniker)}" placeholder="${esc(STEP_BY_KEY[m.step].ex)}">
+          <span class="hint">Bv. “${esc(STEP_BY_KEY[m.step].ex)}”. Laat leeg als deze keuze de naam niet moet aanpassen.</span></div>
+        <div class="field"><label>Statwijziging (kan negatief zijn)</label>
+          <div class="stat-row">
+            <div><div class="hint">Body</div>${stepper("body", m.body)}</div>
+            <div><div class="hint">Mind</div>${stepper("mind", m.mind)}</div>
+            <div><div class="hint">Soul</div>${stepper("soul", m.soul)}</div>
+          </div></div>
+        <div class="field"><label>Game text (wordt aan de Wizard toegevoegd)</label><textarea data-f="gameText" placeholder="Start the game with…">${esc(m.gameText)}</textarea></div>
+        <div class="edit-actions">
+          <button class="btn" id="e-dup">Dupliceer</button>
+          <button class="btn btn-danger" id="e-del">Verwijder</button>
+        </div>`;
+    }
+    $("mod-edit-pane").innerHTML = html;
+    updateTplPreview();
+  }
+
+  function updateTplPreview(){
+    const el = $("tpl-preview"); if (!el) return;
+    const pick = key => { const l = modsFor(key).filter(x => x.moniker.trim()); return l.length ? l[0].id : null; };
+    el.textContent = composeName("Sarpa", { dwell:pick("dwell"), deed:pick("deed"), epithet:pick("epithet") }, DB.settings.template);
+  }
+
+  function setField(field, rawValue){
+    if (field.startsWith("s:")){
+      const k = field.slice(2);
+      DB.settings[k] = k === "template" ? rawValue : Math.max(0, toInt(rawValue));
+      saveDB(); updateTplPreview(); return;
+    }
+    const m = M.sel ? modById(M.sel) : null; if (!m) return;
+    if (field === "body" || field === "mind" || field === "soul") m[field] = toInt(rawValue);
+    else m[field] = rawValue;
+    saveDB(); renderList();
+  }
+
+  $("mod-edit-pane").addEventListener("input", e => {
+    const f = e.target.getAttribute("data-f"); if (!f) return;
+    setField(f, e.target.value);
+    if (f === "step") renderEdit(); // placeholder/voorbeeld hangt van de stap af
+  });
+  $("mod-edit-pane").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.hasAttribute("data-step")){
+      const f = b.getAttribute("data-step");
+      const inp = b.parentElement.querySelector("input");
+      let v = toInt(inp.value) + toInt(b.getAttribute("data-d"));
+      if (f.startsWith("s:") && v < 0) v = 0;
+      inp.value = v; setField(f, String(v)); return;
+    }
+    if (b.id === "e-dup"){
+      const m = modById(M.sel); if (!m) return;
+      const c = Object.assign({}, m, { id:uid(), label:m.label + " (kopie)" });
+      DB.modifiers.push(c); M.sel = c.id; saveDB(); renderList(); renderEdit(); toast("Gedupliceerd");
+    }
+    if (b.id === "e-del"){
+      const m = modById(M.sel); if (!m) return;
+      if (!confirm("“" + (m.label || "zonder naam") + "” verwijderen?")) return;
+      DB.modifiers = DB.modifiers.filter(x => x.id !== m.id);
+      Object.keys(D.picks).forEach(k => { if (D.picks[k] === m.id) D.picks[k] = null; });
+      Object.keys(D.offers).forEach(k => { D.offers[k] = D.offers[k].filter(id => id !== m.id); });
+      M.sel = null; saveDB(); renderList(); renderEdit();
+    }
+  });
+
+  $("mod-filter").addEventListener("click", e => { const c = e.target.closest(".chip"); if (!c) return; M.filter = c.getAttribute("data-f"); renderFilter(); renderList(); });
+  $("mod-search").addEventListener("input", e => { M.search = e.target.value; renderList(); });
+  $("mod-list").addEventListener("click", e => { const li = e.target.closest("li[data-id]"); if (!li) return; M.sel = li.getAttribute("data-id"); renderList(); renderEdit(); });
+  $("mod-new").addEventListener("click", () => {
+    const step = (M.filter !== "all") ? M.filter : "dwell";
+    const m = normMod({ step, label:"Nieuwe modifier" });
+    DB.modifiers.push(m); M.sel = m.id; saveDB(); renderList(); renderEdit();
+    const inp = document.querySelector('#mod-edit-pane input[data-f="label"]'); if (inp){ inp.focus(); inp.select(); }
+  });
+  $("mod-export").addEventListener("click", () => download({ version:1, settings:DB.settings, modifiers:DB.modifiers }, "wizard-modifiers.json"));
+  $("mod-import").addEventListener("click", () => $("mod-import-file").click());
+  $("mod-import-file").addEventListener("change", e => {
+    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const p = JSON.parse(r.result);
+        const list = Array.isArray(p) ? p : p.modifiers;
+        if (!Array.isArray(list)) throw new Error("geen modifiers-lijst");
+        let added = 0, replaced = 0;
+        list.map(normMod).forEach(m => {
+          const i = DB.modifiers.findIndex(x => x.id === m.id);
+          if (i >= 0){ DB.modifiers[i] = m; replaced++; } else { DB.modifiers.push(m); added++; }
+        });
+        if (p.settings && confirm("Ook de instellingen uit dit bestand overnemen?")) DB.settings = Object.assign({}, DEFAULT_SETTINGS, p.settings);
+        saveDB(); renderList(); renderEdit();
+        toast(added + " nieuw, " + replaced + " bijgewerkt");
+      } catch(err){ toast("Importeren mislukt: " + err.message); }
+    };
+    r.readAsText(f);
+  });
+  $("mod-clear").addEventListener("click", () => {
+    if (!DB.modifiers.length) return;
+    if (!confirm("ALLE " + DB.modifiers.length + " modifiers wissen? (Exporteer eerst als je ze nog wil bewaren.)")) return;
+    DB.modifiers = []; D.picks = { dwell:null, deed:null, epithet:null }; D.offers = {}; M.sel = null;
+    saveDB(); renderList(); renderEdit();
+  });
+
+  /* ============================================================
+     Tabs + init
+     ============================================================ */
+  document.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === b));
+    const which = b.getAttribute("data-tab");
+    $("view-draft").classList.toggle("active", which === "draft");
+    $("view-mods").classList.toggle("active", which === "mods");
+    if (which === "draft") renderDraft();
+  }));
+
+  loadDB();
+  renderFilter(); renderList(); renderEdit();
+  renderDraft();
+})();
+</script>
+</body>
+</html>

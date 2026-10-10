@@ -36,10 +36,15 @@ const SUBTYPE_EFFECTS = {
   //   - target:"opponentZone", NIET "opponentActiveWizard": het doel is een
   //     ZONE bij de tegenstander (dezelfde soort — Body/Mind/Soul — als de
   //     zone van deze Minion), niet een specifieke kaart of de Wizard
-  //     rechtstreeks. De VERDEDIGER kiest zelf hoe die schade opgevangen
-  //     wordt: op het schild van dat type, door een Manifestation/Destiny
-  //     in die zone te sacrificen, of door rechtstreeks kaarten te
-  //     banishen uit deck/hand/discard — afhankelijk van het schadetype.
+  //     rechtstreeks. Resolutie (Interpreter-specificatie, sectie 3,
+  //     definitief 2026-09-29): een vaste volgorde van drie stappen —
+  //     (1) de verdediger mag optioneel kaarten uit de getargette zone
+  //     offeren om te blokkeren (elke geofferde kaart trekt integraal haar
+  //     eigen stat van de schade af en krijgt zelf geen schade), (2) de
+  //     rest gaat automatisch op het schild van dat
+  //     type, (3) wat dan nog overblijft banisht automatisch 1 kaart per
+  //     schadepunt, per as uit deck (Body), hand (Mind) of discard (Soul).
+  //     Er is dus GEEN keuze tussen schild/sacrifice/banish.
   //     Dit is dus een apart resolutiemechanisme t.o.v. de generieke
   //     Manifestation/Destiny-schaderegel uit sectie 2c (die geldt wanneer
   //     iets schade toedient aan een SPECIFIEKE kaart-instantie, niet aan
@@ -53,8 +58,9 @@ const SUBTYPE_EFFECTS = {
   //
   // Flying (TOEKOMSTIG, NIET gebouwd — cfr. spec sectie 2e): een Minion met
   // het keyword Flying zou zijn Attack ALTERNATIEF mogen targetten — niet
-  // enkel "een zone" (met defender's choice), maar ook rechtstreeks een
-  // specifieke Manifestation of Destiny in een zone. Dat is bewust een
+  // enkel "een zone" (met blokkeren/schild/banish), maar ook rechtstreeks
+  // een specifieke Manifestation of Destiny in een zone (direct damage via
+  // het zwarte-bolletjes-systeem van 2c). Dat is bewust een
   // aparte, latere uitbreiding (een eigen SUBTYPE_EFFECTS.Flying-achtige
   // entry of een aanpassing aan de interpreter) — geen onderdeel van deze
   // module vandaag.

@@ -148,6 +148,23 @@
   .stack-resolve-btn{ font-size:9.5px; padding:2px 10px; font-weight:bold; }
   .stack-resolve-btn:disabled{ opacity:0.35; }
 
+  /* Damage-entry op de stack (geen kaart): X aanpasbaar + "Take X ... damage",
+     enkel klikbaar voor het doelwit — zie takeStackDamage(). */
+  .stack-damage-box{
+    width:158px; padding:6px 8px; border-radius:8px; display:flex; flex-direction:column; gap:4px;
+    background: var(--panel); border:1px solid var(--dmg-color, var(--border));
+    border-left:4px solid var(--dmg-color, var(--gold));
+    box-shadow:0 1px 5px rgba(0,0,0,0.5);
+  }
+  .stack-damage-head{ font-family: var(--font-display); font-size:11.5px; color: var(--gold-soft); white-space:nowrap; }
+  .stack-damage-source{ font-size:9px; color: var(--ink-muted); line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .stack-damage-orig{ font-size:8.5px; color: var(--ink-dim); }
+  .stack-damage-hint{ font-size:8.5px; color: var(--ink-dim); line-height:1.3; }
+  .counter-box.stack-damage-x{ justify-content:center; padding:2px 6px; gap:4px; }
+  .counter-box.stack-damage-x .c-label{ min-width:auto; font-weight:bold; }
+  .counter-box.stack-damage-x input{ width:34px; font-size:12px; padding:2px 1px; }
+  .stack-damage-take-btn{ width:100%; }
+
   body.zen-mode{ overflow:hidden; }
   body.zen-mode #drive-bar{ display:none !important; }
   body.zen-mode #view-arena{
@@ -934,7 +951,13 @@
   // 4) — voorheen bewust UIT als opt-in schakelaar, maar dat bleek in de
   // praktijk net de default die je toch elke keer manueel aanvinkt.
   function freshArenaSettings(){
-    return { autoPayCost: true, enforceCastLegality: true, resolveEnabled: true, hideOpponentHand: true, freeActionSpending: true };
+    // turnRedux (sinds 2026-10-09, default AAN): alternatieve beurtstructuur.
+    // END TURN voert een Rest uit (schildkeuze + actions = Body-stat) en geeft
+    // de beurt door; rest verwijdert geen witte Time Counters meer en ontt​apt
+    // niets (dat gebeurt enkel nog door acties te spenderen, zie
+    // tickSlumberOnce); Spite zakt bij rest naar de Soul-stat i.p.v. naar 0
+    // (en blijft behouden als ze al <= Soul-stat is). UIT = het oude gedrag.
+    return { autoPayCost: true, enforceCastLegality: true, resolveEnabled: true, hideOpponentHand: true, freeActionSpending: true, turnRedux: true };
   }
 
   function ensureArenaSettings(){
@@ -1571,6 +1594,12 @@
       const counters = ci.counters || freshCounters();
       const showCounters = zoneAllowsCounters(zone);
       const canFile = playerIdx !== null && playerIdx !== undefined;
+      // Attack-knop: kaart ligt in play en heeft een activated Attack-ability
+      // (bv. via het Minion-subtype, cfr. getEffectiveEffects).
+      const attackEffect = (card && canFile && PERMANENT_DAMAGE_STATKEY[zone])
+        ? getEffectiveEffects(card).find(e => e.kind === "activated" && e.isAttack) : null;
+      // Direct damage: kaart ligt op de stack (en heeft een caster).
+      const canDamageFromStack = !!(card && zone === "stack" && ci.casterIdx !== undefined);
 
       el.innerHTML = `
         <div class="arena-zoom-content">
@@ -1605,6 +1634,20 @@
             </div>
             ` : `<div class="zoom-hint">Tellers zijn enkel beschikbaar voor kaarten die in het spel liggen (Body/Mind/Soul).</div>`}
 
+            ${attackEffect ? `
+            <div>
+              <div class="zoom-section-label">Attack</div>
+              <button type="button" class="btn primary zoom-tap-btn" id="zoom-attack-btn" ${ci.tapped ? "disabled" : ""}>⚔ Attack — ${permanentRelevantStat(card, zone)} ${DAMAGE_TYPE_LABELS[PERMANENT_DAMAGE_STATKEY[zone]]}-schade</button>
+              <div class="zoom-hint">Exhaust deze kaart en legt de schade op de stack tegen de Wizard van de tegenstander.</div>
+            </div>
+            ` : ""}
+            ${canDamageFromStack ? `
+            <div>
+              <div class="zoom-section-label">Direct damage</div>
+              <button type="button" class="btn zoom-tap-btn" id="zoom-stack-damage-btn">💥 Schade op de stack…</button>
+              <div class="zoom-hint">Legt een damage-entry op de stack tegen de tegenstander van de caster (type kies je zelf, X is daarna nog aan te passen).</div>
+            </div>
+            ` : ""}
             <div class="zoom-actions">
               ${canFile ? `
                 <button type="button" class="btn" id="zoom-hand-btn" ${zone === "hand" ? "disabled" : ""}>✋ Terug naar hand</button>
@@ -1637,6 +1680,16 @@
         renderArenaBoard();
       });
       el.querySelector("#zoom-close-btn").addEventListener("click", ctx.close);
+      const attackBtn = el.querySelector("#zoom-attack-btn");
+      if (attackBtn) attackBtn.addEventListener("click", () => {
+        ctx.close();
+        activateMinionAttack(playerIdx, zone, instanceId);
+      });
+      const stackDamageBtn = el.querySelector("#zoom-stack-damage-btn");
+      if (stackDamageBtn) stackDamageBtn.addEventListener("click", () => {
+        ctx.close();
+        openStackDamageChoice(ci);
+      });
       if (showCounters){
         el.querySelector("#zoom-white-plus").addEventListener("click", () => addCounterToInstance(playerIdx, zone, instanceId, "white"));
         el.querySelector("#zoom-white-minus").addEventListener("click", () => removeCounterFromInstance(playerIdx, zone, instanceId, "white"));
@@ -1846,6 +1899,7 @@
   function resolveStackTop(playerIdx){
     if (!arena || !arena.stack || arena.stack.length === 0) return;
     const entry = arena.stack[arena.stack.length - 1];
+    if (entry.isDamage) return; // damage-entries lopen via takeStackDamage(), niet via Resolve
     if (entry.priorityWith !== playerIdx) return;
     const card = findCard(entry.cardId);
     const cardName = card ? (card.name || "(naamloos)") : "(naamloos)";
@@ -1866,6 +1920,165 @@
     logAction(`✨ "${cardName}" resolvet → ${ZONE_LABELS[destZoneKey] || destZoneKey} (${destPlayer.name})`, "resolve");
     saveArena();
     renderArenaBoard();
+  }
+
+  // ---------- Damage op de stack (playtest-versie, 2026-10-09) ----------
+  // Zonder server/scheidsrechter beslist de GETROFFEN speler zelf: schade ligt
+  // als aparte entry (isDamage:true, geen kaart) op de stack en enkel de client
+  // van het doelwit kan op "Take X ... damage" klikken. Die client voert de
+  // gevolgen uit (kaarten banishen) en de nieuwe stand gaat via saveArena()
+  // naar de tegenstander, zoals elke andere wijziging.
+  // Mitigatie (schild, kaarten offeren, "prevent"-effecten) is bewust nog
+  // MANUEEL: pas X aan vóór je klikt. Schade aan een WIZARD banisht 1 kaart per
+  // punt: Body = top van het deck, Mind = willekeurig uit de hand, Soul =
+  // willekeurig uit de discard (banishForWizardDamage, shared/game-mechanics.js).
+  // Entry: { instanceId, isDamage:true, sourceCardId, sourceLabel, casterIdx,
+  //          targetIdx, damageType:"body"|"mind"|"soul", amount, baseAmount,
+  //          priorityWith: targetIdx }
+  const DAMAGE_TYPE_LABELS = { body: "Body", mind: "Mind", soul: "Soul" };
+  const DAMAGE_TYPE_ICONS = { body: "🛡️", mind: "🧠", soul: "👻" };
+  const DAMAGE_TYPE_ZONE_TEXT = { body: "top van het deck", mind: "willekeurig uit de hand", soul: "willekeurig uit de discard" };
+
+  function pushDamageToStack(opts){
+    if (!arena || !Array.isArray(arena.stack)) return;
+    const amt = Math.max(0, parseInt(opts.amount, 10) || 0);
+    const type = opts.damageType;
+    arena.stack.push({
+      instanceId: uid(),
+      isDamage: true,
+      sourceCardId: opts.sourceCardId || null,
+      sourceLabel: opts.sourceLabel || "",
+      casterIdx: opts.casterIdx,
+      targetIdx: opts.targetIdx,
+      damageType: type,
+      amount: amt,
+      baseAmount: amt,
+      // De getroffen speler krijgt priority: die mag eerst reageren (iets
+      // bovenop casten) of de schade nemen.
+      priorityWith: opts.targetIdx
+    });
+    const caster = arena.players[opts.casterIdx];
+    const target = arena.players[opts.targetIdx];
+    logAction(`💥 ${opts.sourceLabel ? `"${opts.sourceLabel}"` : (caster ? caster.name : "?")} — ${amt} ${DAMAGE_TYPE_LABELS[type] || type}-schade op de stack → ${target ? target.name : "?"}`, "damage-stack");
+    saveArena();
+    renderArenaBoard();
+  }
+
+  function setStackDamageAmount(entryId, value){
+    if (!arena || !Array.isArray(arena.stack)) return;
+    const entry = arena.stack.find(e => e && e.isDamage && e.instanceId === entryId);
+    if (!entry) return;
+    entry.amount = Math.max(0, parseInt(value, 10) || 0);
+    saveArena();
+    renderArenaBoard();
+  }
+
+  // Klik op "Take X ... damage": enkel op de bovenste stack-entry, enkel door de
+  // client van het doelwit (solo-modus: altijd), en enkel als Resolve aanstaat.
+  // De entry wordt eerst van de stack gehaald, dus een dubbele klik of een
+  // heraangeboden stand kan de schade niet twee keer toepassen.
+  function takeStackDamage(entryId){
+    if (!arena || !Array.isArray(arena.stack) || arena.stack.length === 0) return;
+    const entry = arena.stack[arena.stack.length - 1];
+    if (!entry || !entry.isDamage || entry.instanceId !== entryId) return;
+    if (arena.settings && arena.settings.resolveEnabled === false) return;
+    const owned = clientOwnedPlayerIdx();
+    if (owned !== null && owned !== entry.targetIdx) return;
+
+    arena.stack.pop();
+    const target = arena.players[entry.targetIdx];
+    if (!target){ saveArena(); renderArenaBoard(); return; }
+
+    const type = entry.damageType;
+    const amount = Math.max(0, parseInt(entry.amount, 10) || 0);
+    const result = banishForWizardDamage(target, type, amount);
+    const names = result.banished.map(b => {
+      const c = findCard(b.cardId);
+      return c ? (c.name || "(naamloos)") : "(verwijderde kaart)";
+    });
+    const adjusted = (entry.baseAmount !== undefined && entry.baseAmount !== amount) ? ` (oorspronkelijk ${entry.baseAmount})` : "";
+    const sourceTxt = entry.sourceLabel ? ` van "${entry.sourceLabel}"` : "";
+    let text = `💥 ${target.name} neemt ${amount} ${DAMAGE_TYPE_LABELS[type] || type}-schade${adjusted}${sourceTxt}`;
+    if (amount === 0) text += " — niets gebanisht";
+    else text += ` — ${result.banished.length} kaart(en) gebanisht (${DAMAGE_TYPE_ZONE_TEXT[type] || "?"})` + (names.length ? `: ${names.join(", ")}` : "");
+    if (result.shortfall > 0) text += ` — ${result.shortfall} schadepunt(en) zonder kaart om te banishen`;
+    logAction(text, "damage");
+    saveArena();
+    renderArenaBoard();
+  }
+
+  // Minion-Attack activeren (vanuit de zoom-overlay van een in-play kaart): de
+  // Minion exhaust en een damage-entry (waarde = haar stat in de zone waarin ze
+  // ligt, type = die zone) komt op de stack tegen de Wizard van de tegenstander.
+  // Waarde en type zijn een momentopname bij activatie (Interpreter-spec L2).
+  function activateMinionAttack(playerIdx, zone, instanceId){
+    const ci = findInstance(playerIdx, zone, instanceId);
+    const card = ci ? findCard(ci.cardId) : null;
+    if (!ci || !card) return;
+    const owned = clientOwnedPlayerIdx();
+    if (owned !== null && owned !== playerIdx){
+      showArenaNotice("Attack niet toegestaan", "Je kan enkel aanvallen met je eigen kaarten.");
+      return;
+    }
+    const damageType = PERMANENT_DAMAGE_STATKEY[zone];
+    const attackEffect = damageType ? getEffectiveEffects(card).find(e => e.kind === "activated" && e.isAttack) : null;
+    if (!attackEffect) return;
+    if ((attackEffect.costs || []).some(c => c.type !== "ExhaustSelf")){
+      showArenaNotice("Attack niet toegestaan", "Deze Attack heeft kosten die de arena nog niet automatisch kan betalen (enkel \"exhaust this card\" wordt ondersteund).");
+      return;
+    }
+    if (ci.tapped){
+      showArenaNotice("Attack niet toegestaan", `"${card.name || "(naamloos)"}" is al exhausted.`);
+      return;
+    }
+    const amount = permanentRelevantStat(card, zone);
+    if (amount <= 0){
+      showArenaNotice("Geen schade", `"${card.name || "(naamloos)"}" heeft ${DAMAGE_TYPE_LABELS[damageType]}-stat 0 in deze zone en doet dus geen schade.`);
+      return;
+    }
+    // Exhaust, met hetzelfde Slumber-gedrag als de Exhaust-knop in de zoom-view.
+    ci.tapped = true;
+    if (!ci.counters) ci.counters = freshCounters();
+    ci.counters.white = card.slumber || 0;
+    const owner = arena.players[playerIdx];
+    logAction(`⚔️ ${owner ? owner.name : "?"} valt aan met "${card.name || "(naamloos)"}" (⤵ Exhaust)`, "attack");
+    pushDamageToStack({
+      sourceCardId: card.id,
+      sourceLabel: card.name || "(naamloos)",
+      casterIdx: playerIdx,
+      targetIdx: otherPlayerIdx(playerIdx),
+      damageType: damageType,
+      amount: amount
+    });
+  }
+
+  // Direct damage (bv. een spell): vanuit de zoom-overlay van een kaart die op de
+  // stack ligt. Het schadetype is (nog) geen veld op een effect, dus de caster
+  // kiest het hier; X start op de waarde van het eerste Damage-effect van de
+  // kaart (of 1) en is daarna nog aan te passen op de damage-entry zelf.
+  function openStackDamageChoice(ci){
+    const card = findCard(ci.cardId);
+    const casterIdx = ci.casterIdx;
+    if (!card || casterIdx === undefined || !arena.players[casterIdx]) return;
+    const owned = clientOwnedPlayerIdx();
+    if (owned !== null && owned !== casterIdx){
+      showArenaNotice("Niet toegestaan", "Enkel de caster kan schade van deze kaart op de stack leggen.");
+      return;
+    }
+    const dmgEffect = getEffectiveEffects(card).find(e => e.action === "Damage" && e.value > 0);
+    const amount = dmgEffect ? dmgEffect.value : 1;
+    const options = ["body", "mind", "soul"].map(k => ({ key: k, label: `${DAMAGE_TYPE_ICONS[k]} ${DAMAGE_TYPE_LABELS[k]}-schade` }));
+    openArenaChoice(`💥 "${card.name || "(naamloos)"}" — ${amount} schade, welk type?`, options, (typeKey) => {
+      if (!arena || !DAMAGE_TYPE_LABELS[typeKey]) return;
+      pushDamageToStack({
+        sourceCardId: card.id,
+        sourceLabel: card.name || "(naamloos)",
+        casterIdx: casterIdx,
+        targetIdx: otherPlayerIdx(casterIdx),
+        damageType: typeKey,
+        amount: amount
+      });
+    });
   }
 
   // Bepaalt, in netwerkmodus, welke playerIdx (0/1) deze client mag bedienen
@@ -2022,6 +2235,28 @@
     });
   }
 
+  // END TURN-knop. Met turnRedux (default) voert die een Rest uit: de speler
+  // kiest eerst welk schildje te herstellen (zelfde keuze als de Rest-knop),
+  // dan wordt restPlayer() uitgevoerd (acties = Body-stat, Spite -> Soul-stat,
+  // geen Time Counters meer) en gaat de beurt door (endPlayerTurn: hand-
+  // behoud/discard, tegenstander trekt). Sluit je de keuze-popup zonder te
+  // kiezen, dan gebeurt er niets. Zonder turnRedux: het oude gedrag.
+  function requestEndTurn(playerIdx){
+    if (!arena || arena.turn !== playerIdx) return;
+    ensureArenaSettings();
+    if (!arena.settings.turnRedux){ endPlayerTurn(playerIdx); return; }
+    const options = [
+      { key: "bodyShield", label: "🛡️ Body-schild aanvullen" },
+      { key: "mindShield", label: "🧠 Mind-schild aanvullen" },
+      { key: "soulShield", label: "👻 Soul-schild aanvullen" }
+    ];
+    openArenaChoice("⏭️ Einde beurt — Rest: kies één schildje om aan te vullen", options, (shieldKey) => {
+      if (!arena || arena.turn !== playerIdx) return;
+      restPlayer(playerIdx, shieldKey);
+      endPlayerTurn(playerIdx);
+    });
+  }
+
   function inflictCurse(playerIdx, cardId){
     const p = arena.players[playerIdx];
     p.discard.push({ instanceId: uid(), cardId, tapped: false, counters: freshCounters() });
@@ -2037,22 +2272,40 @@
     if (shieldKey && Object.prototype.hasOwnProperty.call(p.counters, shieldKey)){
       p.counters[shieldKey] = (p.counters[shieldKey] || 0) + 1;
     }
+    ensureArenaSettings();
+    const turnRedux = !!arena.settings.turnRedux;
     let readiedCount = 0, tickedCount = 0;
-    ["inPlayBody", "inPlayMind", "inPlaySoul"].forEach(zone => {
-      p[zone].forEach(ci => {
-        if (!ci.tapped) return;
-        if ((ci.counters.white || 0) > 0){
-          ci.counters.white -= 1;
-          tickedCount++;
-        } else {
-          ci.tapped = false;
-          readiedCount++;
-        }
+    // Oud gedrag (turnRedux uit): rest telt ook de Time Counters van je
+    // permanents af en ontt​apt ze. Met turnRedux gebeurt dat enkel nog door
+    // acties te spenderen (spendAction/castCardToStack -> tickSlumberOnce).
+    if (!turnRedux){
+      ["inPlayBody", "inPlayMind", "inPlaySoul"].forEach(zone => {
+        p[zone].forEach(ci => {
+          if (!ci.tapped) return;
+          if ((ci.counters.white || 0) > 0){
+            ci.counters.white -= 1;
+            tickedCount++;
+          } else {
+            ci.tapped = false;
+            readiedCount++;
+          }
+        });
       });
-    });
-    // Rest verliest ook alle opgespaarde Spite (cfr. regels: "Resting is the
-    // primary way ... but they lose all stored Spite in doing so").
-    p.counters.spite = 0;
+    }
+    if (turnRedux){
+      // Spite zakt naar de huidige Soul-stat, of blijft behouden als ze al
+      // <= Soul-stat is.
+      const soulStat = p.counters.soulStat || 0;
+      const spiteBefore = p.counters.spite || 0;
+      if (spiteBefore > soulStat){
+        p.counters.spite = soulStat;
+        logAction(`🔥 ${p.name}: Spite zakt van ${spiteBefore} naar ${soulStat} (Soul-stat)`, "spite-drop");
+      }
+    } else {
+      // Rest verliest ook alle opgespaarde Spite (cfr. regels: "Resting is the
+      // primary way ... but they lose all stored Spite in doing so").
+      p.counters.spite = 0;
+    }
     // Rest herstelt ook de actie-teller: die wordt gelijkgesteld aan de
     // Body-waarde van de wizard (p.counters.bodyStat).
     p.counters.actions = p.counters.bodyStat || 0;
@@ -2354,6 +2607,7 @@
         <label><input type="checkbox" id="setting-resolve" ${s.resolveEnabled ? "checked" : ""}> Resolve-knoppen op de stack toestaan</label>
         <label><input type="checkbox" id="setting-hideopphand" ${s.hideOpponentHand ? "checked" : ""}> Tegenstanders hand face-down tonen (verberg kaartinfo)</label>
         <label><input type="checkbox" id="setting-freeaction" ${s.freeActionSpending ? "checked" : ""}> Vrij acties spenderen — meerdere actie-kaarten na elkaar casten binnen je beurt zonder op priority te wachten (uitvinken = oud gedrag: max. één kaart tegelijk op de stack per beurt)</label>
+        <label><input type="checkbox" id="setting-turnredux" ${s.turnRedux ? "checked" : ""}> Turn redux — END TURN = Rest (schildkeuze, acties = Body-stat); rest verwijdert geen Time Counters meer en onttapt niets; Spite zakt naar Soul-stat (uitvinken = oud gedrag)</label>
         <div class="settings-hint">Uit = die controle/knop staat helemaal stil — handig om heel gericht één ding tegelijk te testen. De face-down instelling geldt enkel in netwerkmodus (verbonden met een tegenstander); in solo-test zie je sowieso altijd beide handen.</div>
       </div>
     `;
@@ -2512,7 +2766,7 @@
       section.querySelector(".shuffle-deck-btn").addEventListener("click", () => shuffleDeck(playerIdx));
 
       const endTurnBtn = section.querySelector(".end-turn-btn");
-      if (endTurnBtn) endTurnBtn.addEventListener("click", () => endPlayerTurn(playerIdx));
+      if (endTurnBtn) endTurnBtn.addEventListener("click", () => requestEndTurn(playerIdx));
 
       const inflictBtn = section.querySelector(".inflict-btn");
       inflictBtn.addEventListener("click", () => openInflictChoice(playerIdx));
@@ -2551,6 +2805,12 @@
         settingsPopoverEl.querySelector("#setting-freeaction").addEventListener("change", (e) => {
           ensureArenaSettings();
           arena.settings.freeActionSpending = e.target.checked;
+          saveArena();
+          renderArenaBoard();
+        });
+        settingsPopoverEl.querySelector("#setting-turnredux").addEventListener("change", (e) => {
+          ensureArenaSettings();
+          arena.settings.turnRedux = e.target.checked;
           saveArena();
           renderArenaBoard();
         });
@@ -2624,13 +2884,73 @@
     renderArenaNoticeOverlay();
   }
 
+  // Damage-entry op de stack (geen kaart): kop, bron → doelwit, X-stepper en de
+  // "Take X ... damage"-knop. X mag door elke client aangepast worden (manuele
+  // mitigatie), de knop enkel door de client van het doelwit.
+  function buildStackDamageNode(entry, isTop){
+    const wrap = document.createElement("div");
+    wrap.className = "arena-stack-card arena-stack-damage";
+    wrap.dataset.instanceId = entry.instanceId;
+
+    const type = entry.damageType;
+    const label = DAMAGE_TYPE_LABELS[type] || String(type);
+    const target = arena.players[entry.targetIdx];
+    const caster = arena.players[entry.casterIdx];
+    const targetName = target ? target.name : "?";
+    const sourceTxt = (entry.sourceLabel || (caster ? caster.name : "?")) + " → " + targetName;
+    const amount = Math.max(0, parseInt(entry.amount, 10) || 0);
+
+    const box = document.createElement("div");
+    box.className = "stack-damage-box";
+    box.style.setProperty("--dmg-color", `var(--stat-${type})`);
+    box.innerHTML = `
+      <div class="stack-damage-head">💥 ${DAMAGE_TYPE_ICONS[type] || ""} ${escapeHtml(label)} damage</div>
+      <div class="stack-damage-source" title="${escapeHtml(sourceTxt)}">${escapeHtml(sourceTxt)}</div>
+      <div class="counter-box stack-damage-x" title="Pas X aan om schild/offers/prevent manueel te verrekenen">
+        <span class="c-label">X</span>
+        <button type="button" class="c-minus">−</button>
+        <input type="number" class="c-value" value="${amount}" min="0">
+        <button type="button" class="c-plus">+</button>
+      </div>
+      ${(entry.baseAmount !== undefined && entry.baseAmount !== amount) ? `<div class="stack-damage-orig">oorspronkelijk ${escapeHtml(String(entry.baseAmount))}</div>` : ""}
+    `;
+    box.querySelector(".c-minus").addEventListener("click", () => setStackDamageAmount(entry.instanceId, amount - 1));
+    box.querySelector(".c-plus").addEventListener("click", () => setStackDamageAmount(entry.instanceId, amount + 1));
+    box.querySelector(".c-value").addEventListener("change", (e) => setStackDamageAmount(entry.instanceId, e.target.value));
+
+    const resolveOn = !arena.settings || arena.settings.resolveEnabled !== false;
+    const owned = clientOwnedPlayerIdx();
+    const isTarget = owned === null || owned === entry.targetIdx;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn primary stack-resolve-btn stack-damage-take-btn";
+    btn.disabled = !isTop || !resolveOn || !isTarget;
+    btn.textContent = isTarget ? `Take ${amount} ${label} damage` : `Wacht op ${targetName}`;
+    btn.title = !resolveOn ? "Resolve-knoppen staan uit (tandwiel-menu)"
+      : !isTop ? "Wacht op de kaart(en) erboven"
+      : !isTarget ? `Enkel ${targetName} kan deze schade nemen`
+      : `Banisht ${amount} kaart(en): ${DAMAGE_TYPE_ZONE_TEXT[type] || "?"}`;
+    btn.addEventListener("click", () => takeStackDamage(entry.instanceId));
+    box.appendChild(btn);
+
+    const hint = document.createElement("div");
+    hint.className = "stack-damage-hint";
+    hint.textContent = `Banisht: ${DAMAGE_TYPE_ZONE_TEXT[type] || "?"}`;
+    box.appendChild(hint);
+
+    wrap.appendChild(box);
+    return wrap;
+  }
+
   // Bouwt de weergave van één kaart op de stack: de kaartfiche, een
   // target-label ("pijl") en een Resolve-knop. Enkel de bovenste kaart
   // (isTop) is "live": de Resolve-knop reageert dan op wie priority heeft.
   // In netwerkmodus (mySeat bekend) is de knop echt greyed out voor het
   // client dat niet aan zet is; in solo-modus (één toestel, beide spelers)
-  // blijft ze gewoon altijd klikbaar.
+  // blijft ze gewoon altijd klikbaar. Damage-entries (isDamage) krijgen hun
+  // eigen weergave, zie buildStackDamageNode hierboven.
   function buildStackCardNode(ci, isTop){
+    if (ci.isDamage) return buildStackDamageNode(ci, isTop);
     const wrap = document.createElement("div");
     wrap.className = "arena-stack-card";
     wrap.dataset.instanceId = ci.instanceId;
