@@ -127,6 +127,74 @@ const RARITY_LIST = ["Common", "Uncommon", "Rare", "Signature"];
 // (nog te bouwen) ze een-voor-een kan afhandelen.
 const COST_TYPE_LIST = ["ExhaustSelf", "Spite", "Action", "Discard", "SelfVulnerable"];
 
+/* -------------------------------------------------------------------------
+   EFFECT_SUPPORT (2026-10-10): wat de arena op dit moment daadwerkelijk UITVOERT.
+   De cardbuilder gebruikt dit om opties en velden die (nog) niets doen te
+   markeren met ⚠, zodat testers er niet per ongeluk op rekenen.
+   >>> UPDATE DIT BLOK telkens arena.html iets nieuws afvuurt/ondersteunt. <<<
+   Bron van waarheid in de arena: fireDamageTriggerEffects (OnResolve/OnDiscard,
+   enkel action Damage), activateMinionAttack (enkel costs ExhaustSelf). -------- */
+const EFFECT_SUPPORT = {
+  // trigger -> acties die bij die trigger al werken
+  triggers: { OnResolve: ["Damage"], OnDiscard: ["Damage"] },
+  // trigger -> targets die een Damage-effect bij die trigger kan oplossen
+  damageTargets: {
+    OnResolve: ["controller", "ownActiveWizard", "opponent", "opponentActiveWizard", "opponentZone", "chosen"],
+    OnDiscard: ["controller", "ownActiveWizard", "opponent", "opponentActiveWizard", "opponentZone"]
+  },
+  // kost-componenten die de arena al betaalt bij een Attack
+  costs: ["ExhaustSelf"]
+};
+
+function isTriggerImplemented(trigger){ return !!EFFECT_SUPPORT.triggers[trigger]; }
+function isActionImplemented(action){
+  return Object.values(EFFECT_SUPPORT.triggers).some(list => list.includes(action));
+}
+function isCostImplemented(type){ return EFFECT_SUPPORT.costs.includes(type); }
+
+// Geeft een uitleg-tekst terug als dit target (in de context van dit effect) niet
+// werkt, anders "". Gebruikt voor het ⚠ in de target-dropdown.
+function effectTargetNote(target, eff){
+  const anywhere = Object.values(EFFECT_SUPPORT.damageTargets).some(list => list.includes(target));
+  if (!anywhere) return `Target "${target}" wordt nog nergens ondersteund.`;
+  if (eff && eff.kind === "activated"){
+    if (eff.isAttack && target !== "opponentZone") return `Bij een Attack wordt target genegeerd (altijd een zone bij de tegenstander).`;
+    return "";
+  }
+  const list = eff ? EFFECT_SUPPORT.damageTargets[eff.trigger] : null;
+  if (list && !list.includes(target)) return `Target "${target}" werkt niet bij ${eff.trigger}.`;
+  return "";
+}
+
+// Alle waarschuwingen voor één effect (lege lijst = volledig werkend).
+function effectIssues(eff){
+  const issues = [];
+  if (!eff) return issues;
+  if (eff.kind === "activated"){
+    if (!eff.isAttack){
+      issues.push("Activated abilities werken nog enkel als Attack (vink \"Dit is een Attack\" aan) — anders heeft dit effect geen enkele werking.");
+    } else {
+      (eff.costs || []).forEach(c => {
+        if (!isCostImplemented(c.type)) issues.push(`Cost "${c.type}" wordt nog niet betaald — de Attack wordt geweigerd zolang die erbij staat.`);
+      });
+    }
+  } else {
+    if (!eff.trigger) issues.push("Geen trigger gekozen — dit effect wordt nooit afgevuurd.");
+    else if (!isTriggerImplemented(eff.trigger)) issues.push(`Trigger "${eff.trigger}" wordt nog niet afgevuurd.`);
+    else if (eff.action && !EFFECT_SUPPORT.triggers[eff.trigger].includes(eff.action)) issues.push(`Actie "${eff.action}" werkt nog niet bij ${eff.trigger}.`);
+    if (!eff.action) issues.push("Geen actie gekozen.");
+    else if (!isActionImplemented(eff.action)) issues.push(`Actie "${eff.action}" is nog niet geïmplementeerd.`);
+    if (eff.action === "Damage"){
+      const tn = effectTargetNote(eff.target, eff);
+      if (tn) issues.push(tn);
+      if (!eff.damageType) issues.push("Geen schadetype gekozen — het effect wordt overgeslagen.");
+      if (!(eff.value > 0)) issues.push("Waarde is 0 — er wordt geen schade gedaan.");
+    }
+  }
+  if (eff.condition && String(eff.condition).trim()) issues.push("Conditie wordt nog niet geëvalueerd — het effect vuurt altijd, ongeacht de conditie.");
+  return issues;
+}
+
 function normalizeCostEntry(raw){
   raw = raw || {};
   return {
