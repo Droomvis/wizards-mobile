@@ -72,8 +72,11 @@ function isSubtypeNameTaken(name, customSubtypes){
 
 // Triggers: het moment waarop een effect afgaat. Sluit aan bij wat al in de
 // arena-code als voorbeeld genoemd wordt (OnPlayed, OnExhausted).
+// OnResolve (2026-10-10): afgaan op het moment dat de kaart zelf van de stack
+// resolvet (bv. een Incantation met direct damage). Nog geen interpreter die
+// dit automatisch uitvoert — zie Interpreter-specificatie sectie 6.
 const TRIGGER_LIST = [
-  "OnPlayed", "OnEnterPlay", "OnLeavePlay",
+  "OnPlayed", "OnResolve", "OnEnterPlay", "OnLeavePlay",
   "OnExhausted", "OnReady", "OnRest",
   "StartOfTurn", "EndOfTurn",
   "OnDiscard", "OnBanish", "OnDamaged"
@@ -91,6 +94,12 @@ const ACTION_LIST = [
   "Exhaust", "Ready",
   "Search"
 ];
+
+// Schadetype voor effecten met action:"Damage" (2026-10-10). Zelfde sleutels als
+// arena.html (DAMAGE_TYPE_LABELS/pushDamageToStack) en PERMANENT_DAMAGE_STATKEY.
+// Niet van toepassing op een Attack (isAttack:true): daar volgt het type uit de
+// zone van de aanvallende kaart.
+const DAMAGE_TYPE_LIST = ["body", "mind", "soul"];
 
 // Target: wie/wat het effect raakt. "chosen" laat de speler kiezen (koppelt
 // aan de bestaande openArenaChoice()-overlay in arena.html). "opponentZone"
@@ -162,6 +171,9 @@ function normalizeEffect(raw){
     // enkel voor kind:"trigger".
     trigger: (kind === "trigger" && TRIGGER_LIST.includes(raw.trigger)) ? raw.trigger : "",
     action: ACTION_LIST.includes(raw.action) ? raw.action : "",
+    // damageType: enkel zinvol bij action:"Damage" en niet bij een Attack
+    // (zone-afhankelijk). Anders leeg.
+    damageType: (raw.action === "Damage" && !(kind === "activated" && raw.isAttack) && DAMAGE_TYPE_LIST.includes(raw.damageType)) ? raw.damageType : "",
     target: TARGET_LIST.includes(raw.target) ? raw.target : "self",
     value: toNum(raw.value, 0),
     // isAttack: markeert een activated ability specifiek als "Attack"
