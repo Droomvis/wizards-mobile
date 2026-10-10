@@ -85,6 +85,11 @@
   .effect-fields .field{ flex:1 1 130px; min-width:110px; }
   .effect-fields .field label{ font-size:10px; }
   .effect-fields .field select, .effect-fields .field input{ font-size:12.5px; padding:7px 8px; }
+  .effect-warnings{
+    background: rgba(224,176,74,0.10); border:1px solid #8a6a1f; border-radius:6px;
+    padding:7px 10px; font-size:11.5px; line-height:1.45; color:#e8c36a;
+    display:flex; flex-direction:column; gap:3px;
+  }
   .effect-cost-row{ display:flex; align-items:center; gap:14px; padding-top:6px; border-top:1px solid var(--border-soft); }
   .effect-cost-row label{ font-size:11px; color: var(--ink-dim); display:flex; align-items:center; gap:6px; }
   .effect-cost-row input[type=number]{ width:60px; }
@@ -504,7 +509,7 @@
         <div id="meta-info" style="font-size:11.5px; color:var(--ink-dim); margin-top:-6px;"></div>
 
         <div class="section-title">Automatisatie — arena &amp; draft</div>
-        <div class="automation-hint">Deze velden sturen de toekomstige regel-engine en draft-tool aan. Ze staan nooit op de kaart zelf — enkel de Subtypes hierboven zijn wél zichtbaar op de kaart.</div>
+        <div class="automation-hint">Deze velden sturen de toekomstige regel-engine en draft-tool aan. <b>⚠ = werkt nog niet in de arena</b> — opties met ⚠ en de gele waarschuwingen onder een effect zijn nog niet gebouwd (of werken niet in die combinatie): verwacht er geen gedrag van in playtests. Ze staan nooit op de kaart zelf — enkel de Subtypes hierboven zijn wél zichtbaar op de kaart.</div>
         <div class="field-row">
           <div class="field">
             <label for="f-rarity">Rarity — voor draft-boosters</label>
@@ -943,9 +948,10 @@
         </div>
       </div>
       <div class="field">
-        <label>Conditie (vrije tekst, optioneel — bv. "bodyShield == 0")</label>
+        <label>⚠ Conditie (vrije tekst, optioneel — bv. "bodyShield == 0")</label>
         <input type="text" class="ef-condition" value="${escapeHtml(eff.condition || "")}" placeholder="nog geen condition-parser — puur ter documentatie">
       </div>
+      <div class="effect-warnings"></div>
       <div class="effect-costs-block ef-costs-field" style="${isActivated ? "" : "display:none;"}">
         <div class="costs-label">Cost om te activeren (combineerbaar — bv. exhaust + discard 1 kaart)</div>
         <div class="ef-costs-list">
@@ -992,7 +998,26 @@
         autosave();
       });
     });
+    refreshEffectRowSupport(row, eff);
     return row;
+  }
+
+  // Markeert opties die (nog) niets doen met ⚠ en toont onder het effect een gele
+  // lijst met wat er in deze combinatie niet werkt. Regels: EFFECT_SUPPORT in
+  // shared/card-data.js. Wordt live herberekend bij elke wijziging in een rij.
+  function refreshEffectRowSupport(row, eff){
+    const mark = (opt, ok, label) => { opt.textContent = (ok ? "" : "⚠ ") + label; };
+    row.querySelectorAll(".ef-trigger option").forEach(o => { if (o.value) mark(o, isTriggerImplemented(o.value), o.value); });
+    row.querySelectorAll(".ef-action option").forEach(o => { if (o.value) mark(o, isActionImplemented(o.value), o.value); });
+    row.querySelectorAll(".ef-target option").forEach(o => mark(o, !effectTargetNote(o.value, eff), o.value));
+    row.querySelectorAll(".cost-type").forEach(sel => {
+      Array.from(sel.options).forEach(o => mark(o, isCostImplemented(o.value), COST_TYPE_LABELS[o.value] || o.value));
+    });
+    const box = row.querySelector(".effect-warnings");
+    if (!box) return;
+    const issues = effectIssues(eff);
+    box.style.display = issues.length ? "" : "none";
+    box.innerHTML = issues.map(i => `<div>⚠ ${escapeHtml(i)}</div>`).join("");
   }
 
   function addEffect(){
@@ -1072,6 +1097,12 @@
         card.subtypes = [];
         renderSubtypeGroup(card);
       }
+    }
+    const changedEffectRow = e.target && e.target.closest ? e.target.closest(".effect-row") : null;
+    if (changedEffectRow){
+      const cardForRow = findCard(currentId);
+      const effForRow = cardForRow ? (cardForRow.effects || []).find(x => x.id === changedEffectRow.dataset.effectId) : null;
+      if (effForRow) refreshEffectRowSupport(changedEffectRow, effForRow);
     }
     renderPreview();
     renderSidebar();

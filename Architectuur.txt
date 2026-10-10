@@ -634,3 +634,38 @@ kolom van het damageType. Pijlkleur = het schadetype (--stat-body/mind/soul),
 neutraal goud voor een kaart zonder schadetype; het doelwit krijgt een gloed
 (.arrow-target-glow). Puur visueel, leest enkel de arena-state. Niet in de
 browser getest.
+
+Op 2026-10-10 toegevoegd (arena.html): Burden-discard via de stack + eerste
+OnDiscard-interpreter.
+
+1) Bij END TURN (endPlayerTurn) gaat een Burden die uit de hand valt (voorbij de
+Mind-stat) niet meer rechtstreeks naar de discard maar via pushBurdenToStack()
+op de stack, als een gespeelde kaart zonder target: eigenaar = caster, geen
+kost/Spite-winst, de tegenstander krijgt eerst priority, bestemming = discard
+van de eigenaar (resolveStackTop is ongewijzigd, op een vlag isDiscardTrigger
+na). Andere kaarten gaan nog steeds meteen naar de discard. Schakelaar in het
+tandwiel-menu: burdenDiscardStack (default AAN).
+
+2) fireOnResolveEffects is uitgesplitst in fireDamageTriggerEffects(triggerName,
+settingKey, card, casterIdx, targetRef); OnResolve en het nieuwe OnDiscard
+lopen er allebei door (enkel action:"Damage", zelfde target-regels, zelfde
+damage-entry op de stack). OnDiscard (fireOnDiscardEffects, schakelaar
+discardEffects, default AAN) vuurt voor de eigenaar van de kaart: bij een
+rechtstreeks gediscarde kaart meteen bij END TURN, bij een Burden pas wanneer
+ze van de stack resolvet en effectief in de discard belandt. target "chosen"
+heeft bij OnDiscard geen doelwit en wordt met een logregel overgeslagen.
+Bewust NIET afgevuurd: handmatige verplaatsingen (slepen, Discard-knop in de
+zoom-view), Inflict en de reshuffle van de discard. Pijl-overlay toont ook de
+OnDiscard-schade van een Burden op de stack. Niet in de browser getest.
+
+Zelfde datum, "nog niet werkend"-markering in de effecten-editor
+(cardbuilder.html): shared/card-data.js kreeg EFFECT_SUPPORT (welke triggers,
+acties, targets per trigger en costs de arena effectief uitvoert) plus de
+helpers isTriggerImplemented/isActionImplemented/isCostImplemented/
+effectTargetNote/effectIssues. De builder zet een ⚠ voor elke optie die (nog)
+niets doet, toont onder elk effect een gele waarschuwingslijst (bv. target
+"self", conditie, activated zonder Attack, costs buiten ExhaustSelf, ontbrekend
+schadetype) en herberekent dat live. Het label van de Conditie is altijd
+met ⚠ gemarkeerd (er is geen condition-parser). ONDERHOUD: wie in arena.html
+iets nieuws laat afvuren, past EFFECT_SUPPORT mee aan — anders blijft de
+markering ten onrechte staan. Wizards_Mobile.html heeft deze markering niet.
