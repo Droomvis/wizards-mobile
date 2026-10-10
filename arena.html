@@ -957,7 +957,7 @@
     // niets (dat gebeurt enkel nog door acties te spenderen, zie
     // tickSlumberOnce); Spite zakt bij rest naar de Soul-stat i.p.v. naar 0
     // (en blijft behouden als ze al <= Soul-stat is). UIT = het oude gedrag.
-    return { autoPayCost: true, enforceCastLegality: true, resolveEnabled: true, hideOpponentHand: true, freeActionSpending: true, turnRedux: true };
+    return { autoPayCost: true, enforceCastLegality: true, resolveEnabled: true, hideOpponentHand: true, freeActionSpending: true, turnRedux: true, resolveEffects: true };
   }
 
   function ensureArenaSettings(){
@@ -1515,7 +1515,7 @@
                 // geen zone-eigenaar, onthoud in plaats daarvan wie ze cast'te.
                 targetInfo = { playerIdx: null, cardId: tCi.cardId, onStack: true, stackCasterIdx: tCi.casterIdx };
               } else {
-                targetInfo = { playerIdx: tPlayerIdx, cardId: tCi ? tCi.cardId : null };
+                targetInfo = { playerIdx: tPlayerIdx, cardId: tCi ? tCi.cardId : null, instanceId: tCi ? tCi.instanceId : null, zone: tZone };
               }
             }
             const removedCi = removeInstance(playerIdx, zone, ci.instanceId);
@@ -1879,6 +1879,13 @@
     ci.targetLabel = targetLabel;
     ci.destPlayerIdx = resolveDestPlayerIdx;
     ci.destZone = resolveDestZone;
+    // Doelwit zoals gekozen bij het casten (sleepbestemming), voor OnResolve-
+    // effecten met target "chosen": een specifieke kaart in play, of anders een
+    // In Play-zone van een speler. Bij een Manifestation is de zone haar eigen
+    // bestemming en dus geen doelwit.
+    ci.targetRef = (targetInfo && targetInfo.instanceId && !targetInfo.onStack && targetInfo.playerIdx !== null)
+      ? { kind: "card", playerIdx: targetInfo.playerIdx, zone: targetInfo.zone, instanceId: targetInfo.instanceId }
+      : ((!isManifestation && destZone && destPlayerIdxForZone !== null) ? { kind: "zone", playerIdx: destPlayerIdxForZone, zone: destZone } : null);
     // Bij het casten krijgt eerst de TEGENSTANDER van de caster de kans om
     // te reageren (Resolve te klikken, of zelf iets bovenop te casten).
     ci.priorityWith = otherPlayerIdx(casterIdx);
@@ -1915,9 +1922,11 @@
     entry.counters = freshCounters();
     const destPlayer = arena.players[entry.destPlayerIdx];
     const destZoneKey = entry.destZone;
-    delete entry.casterIdx; delete entry.targetLabel; delete entry.destPlayerIdx; delete entry.destZone; delete entry.priorityWith;
+    const casterIdxForFx = entry.casterIdx, targetRefForFx = entry.targetRef || null;
+    delete entry.casterIdx; delete entry.targetLabel; delete entry.destPlayerIdx; delete entry.destZone; delete entry.priorityWith; delete entry.targetRef;
     destPlayer[destZoneKey].push(entry);
     logAction(`✨ "${cardName}" resolvet → ${ZONE_LABELS[destZoneKey] || destZoneKey} (${destPlayer.name})`, "resolve");
+    fireOnResolveEffects(card, casterIdxForFx, targetRefForFx);
     saveArena();
     renderArenaBoard();
   }
@@ -1962,6 +1971,58 @@
     logAction(`💥 ${opts.sourceLabel ? `"${opts.sourceLabel}"` : (caster ? caster.name : "?")} — ${amt} ${DAMAGE_TYPE_LABELS[type] || type}-schade op de stack → ${target ? target.name : "?"}`, "damage-stack");
     saveArena();
     renderArenaBoard();
+  }
+
+  // OnResolve-effecten (2026-10-10): eerste, bewust smalle trigger-interpreter —
+  // enkel kind:"trigger" + trigger:"OnResolve" + action:"Damage". Draait op de
+  // client van de caster, vlak nadat de kaart van de stack resolvet.
+  //  - target "chosen": het doelwit uit het casten (ci.targetRef). Een kaart:
+  //    enkel Manifestation/Destiny in play, schade = zwarte teller per punt via
+  //    addCounterToInstance (regel 2c, incl. dood). Een zone: damage-entry op de
+  //    stack tegen de Wizard van die speler, type = de zone (precies als een
+  //    Minion-Attack). Eigen kaarten/zones mogen ook gekozen worden.
+  //  - opponent/opponentActiveWizard/opponentZone: Wizard van de tegenstander;
+  //    controller/ownActiveWizard: de caster zelf. Type = effect.damageType.
+  //  - Al het andere wordt overgeslagen met een logregel (geen stille mislukking).
+  function fireOnResolveEffects(card, casterIdx, targetRef){
+    if (!arena || !card || casterIdx === undefined || casterIdx === null) return;
+    ensureArenaSettings();
+    if (!arena.settings.resolveEffects) return;
+    const label = card.name || "(naamloos)";
+    const effects = getEffectiveEffects(card).filter(e => e.kind === "trigger" && e.trigger === "OnResolve" && e.action === "Damage");
+    effects.forEach(eff => {
+      const amount = Math.max(0, parseInt(eff.value, 10) || 0);
+      if (amount <= 0) return;
+      const skip = (why) => logAction(`⚠️ "${label}": OnResolve-schade niet toegepast — ${why}`, "damage-skip");
+      const base = { sourceCardId: card.id, sourceLabel: label, casterIdx: casterIdx };
+
+      if (eff.target === "chosen"){
+        if (!targetRef || !arena.players[targetRef.playerIdx]) return skip("geen doelwit gekozen bij het casten (sleep de spell op een kaart of een In Play-zone)");
+        if (targetRef.kind === "zone"){
+          const zoneType = PERMANENT_DAMAGE_STATKEY[targetRef.zone];
+          if (!zoneType) return skip("de gekozen zone is geen Body/Mind/Soul-zone");
+          pushDamageToStack(Object.assign({}, base, { targetIdx: targetRef.playerIdx, damageType: zoneType, amount: amount }));
+          return;
+        }
+        const targetCi = findInstance(targetRef.playerIdx, targetRef.zone, targetRef.instanceId);
+        const targetCard = targetCi ? findCard(targetCi.cardId) : null;
+        if (!targetCi || !targetCard) return skip("het doelwit ligt niet meer op dezelfde plek");
+        const tName = targetCard.name || "(naamloos)";
+        if (!zoneAllowsCounters(targetRef.zone) || !permanentTakesZoneDamage(targetCard)) return skip(`"${tName}" is geen Manifestation/Destiny in play`);
+        const type = PERMANENT_DAMAGE_STATKEY[targetRef.zone];
+        if (eff.damageType && eff.damageType !== type) return skip(`schadetype ${eff.damageType} past niet bij de zone van "${tName}" (${type})`);
+        logAction(`💥 "${label}" doet ${amount} ${DAMAGE_TYPE_LABELS[type]}-schade aan "${tName}"`, "damage-permanent");
+        for (let i = 0; i < amount; i++) addCounterToInstance(targetRef.playerIdx, targetRef.zone, targetRef.instanceId, "black");
+        return;
+      }
+
+      let targetIdx = null;
+      if (eff.target === "opponent" || eff.target === "opponentActiveWizard" || eff.target === "opponentZone") targetIdx = otherPlayerIdx(casterIdx);
+      else if (eff.target === "controller" || eff.target === "ownActiveWizard") targetIdx = casterIdx;
+      if (targetIdx === null) return skip(`target "${eff.target}" wordt nog niet ondersteund`);
+      if (!DAMAGE_TYPE_LABELS[eff.damageType]) return skip("geen schadetype ingesteld op het effect");
+      pushDamageToStack(Object.assign({}, base, { targetIdx: targetIdx, damageType: eff.damageType, amount: amount }));
+    });
   }
 
   function setStackDamageAmount(entryId, value){
@@ -2067,6 +2128,19 @@
     }
     const dmgEffect = getEffectiveEffects(card).find(e => e.action === "Damage" && e.value > 0);
     const amount = dmgEffect ? dmgEffect.value : 1;
+    // Sinds 2026-10-10 kan een Damage-effect zijn schadetype zelf vastleggen
+    // (cardbuilder, veld damageType): dan hoeft de caster het niet meer te kiezen.
+    if (dmgEffect && DAMAGE_TYPE_LABELS[dmgEffect.damageType]){
+      pushDamageToStack({
+        sourceCardId: card.id,
+        sourceLabel: card.name || "(naamloos)",
+        casterIdx: casterIdx,
+        targetIdx: otherPlayerIdx(casterIdx),
+        damageType: dmgEffect.damageType,
+        amount: amount
+      });
+      return;
+    }
     const options = ["body", "mind", "soul"].map(k => ({ key: k, label: `${DAMAGE_TYPE_ICONS[k]} ${DAMAGE_TYPE_LABELS[k]}-schade` }));
     openArenaChoice(`💥 "${card.name || "(naamloos)"}" — ${amount} schade, welk type?`, options, (typeKey) => {
       if (!arena || !DAMAGE_TYPE_LABELS[typeKey]) return;
@@ -2608,6 +2682,7 @@
         <label><input type="checkbox" id="setting-hideopphand" ${s.hideOpponentHand ? "checked" : ""}> Tegenstanders hand face-down tonen (verberg kaartinfo)</label>
         <label><input type="checkbox" id="setting-freeaction" ${s.freeActionSpending ? "checked" : ""}> Vrij acties spenderen — meerdere actie-kaarten na elkaar casten binnen je beurt zonder op priority te wachten (uitvinken = oud gedrag: max. één kaart tegelijk op de stack per beurt)</label>
         <label><input type="checkbox" id="setting-turnredux" ${s.turnRedux ? "checked" : ""}> Turn redux — END TURN = Rest (schildkeuze, acties = Body-stat); rest verwijdert geen Time Counters meer en onttapt niets; Spite zakt naar Soul-stat (uitvinken = oud gedrag)</label>
+        <label><input type="checkbox" id="setting-resolveeffects" ${s.resolveEffects ? "checked" : ""}> Effecten bij resolve — OnResolve-schade van een gecaste kaart automatisch afvuren (uitvinken = enkel de handmatige "Schade op de stack"-knop)</label>
         <div class="settings-hint">Uit = die controle/knop staat helemaal stil — handig om heel gericht één ding tegelijk te testen. De face-down instelling geldt enkel in netwerkmodus (verbonden met een tegenstander); in solo-test zie je sowieso altijd beide handen.</div>
       </div>
     `;
@@ -2814,6 +2889,12 @@
           saveArena();
           renderArenaBoard();
         });
+        settingsPopoverEl.querySelector("#setting-resolveeffects").addEventListener("change", (e) => {
+          ensureArenaSettings();
+          arena.settings.resolveEffects = e.target.checked;
+          saveArena();
+          renderArenaBoard();
+        });
         settingsPopoverEl.querySelector("#setting-hideopphand").addEventListener("change", (e) => {
           ensureArenaSettings();
           arena.settings.hideOpponentHand = e.target.checked;
@@ -2882,6 +2963,8 @@
     renderArenaZoomOverlay();
     renderArenaPileOverlay();
     renderArenaNoticeOverlay();
+    renderStackArrows();
+    scheduleStackArrows();
   }
 
   // Damage-entry op de stack (geen kaart): kop, bron → doelwit, X-stepper en de
@@ -3082,6 +3165,165 @@
     chatInput.addEventListener("keydown", (e) => { if (e.key === "Enter") doSendChat(); });
 
     return strip;
+  }
+
+  // ---- Pijl-overlay (2026-10-10) ----
+  // Voor elke entry op de stack (gecaste kaart of damage-entry) een geanimeerde
+  // pijl naar zijn doelwit, getekend in een SVG-laag bovenop het bord:
+  //  - damage-entry: de Body/Mind/Soul In Play-kolom van de getroffen speler;
+  //  - kaart met een gekozen doelwit (targetRef): de kaart zelf, of de gekozen
+  //    zone-kolom (enkel als het effect target "chosen" gebruikt);
+  //  - kaart met OnResolve-schade op de tegenstander/caster: de kolom die bij
+  //    het damageType hoort (zelfde keuzes als fireOnResolveEffects).
+  // Puur visueel: leest alleen de arena-state, wijzigt niets. De laag zit in
+  // #view-arena (niet in body) zodat ze ook in zen/fullscreen-modus zichtbaar
+  // blijft. Wordt na elke renderArenaBoard() en bij resize/scroll hertekend.
+  const ARROW_ZONE_BY_TYPE = { body: "inPlayBody", mind: "inPlayMind", soul: "inPlaySoul" };
+  const ARROW_NEUTRAL_COLOR = "#e0b04a";
+  const ARROW_SVG_NS = "http://www.w3.org/2000/svg";
+  let arrowRaf = null;
+
+  (function injectArrowCss(){
+    const st = document.createElement("style");
+    st.textContent = `
+      #arena-arrow-layer{position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:60;overflow:visible;}
+      #arena-arrow-layer path{fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round;stroke-dasharray:9 7;animation:arena-arrow-flow .9s linear infinite;filter:drop-shadow(0 0 3px currentColor);}
+      #arena-arrow-layer polygon{fill:currentColor;filter:drop-shadow(0 0 3px currentColor);}
+      @keyframes arena-arrow-flow{to{stroke-dashoffset:-16;}}
+      .arrow-target-glow{outline:2px solid var(--arrow-color,#e0b04a);outline-offset:2px;box-shadow:0 0 14px var(--arrow-color,#e0b04a);}
+    `;
+    document.head.appendChild(st);
+  })();
+
+  function scheduleStackArrows(){
+    if (arrowRaf) return;
+    arrowRaf = requestAnimationFrame(() => { arrowRaf = null; renderStackArrows(); });
+  }
+  window.addEventListener("resize", scheduleStackArrows);
+  window.addEventListener("scroll", scheduleStackArrows, true);
+
+  function arrowZoneColumnEl(playerIdx, zone){
+    const sec = document.querySelector(`#arena-players .arena-player[data-player-idx="${playerIdx}"]`);
+    const z = sec ? sec.querySelector(`.zone-cards[data-zone="${zone}"]`) : null;
+    return z ? (z.closest(".inplay-col") || z) : null;
+  }
+
+  function arrowChipEl(playerIdx, zone, instanceId){
+    const sec = document.querySelector(`#arena-players .arena-player[data-player-idx="${playerIdx}"]`);
+    if (!sec) return null;
+    const chips = sec.querySelectorAll(`.zone-cards[data-zone="${zone}"] .arena-chip`);
+    for (let i = 0; i < chips.length; i++) if (chips[i].dataset.instanceId === instanceId) return chips[i];
+    return null;
+  }
+
+  function stackEntryArrowTargets(ci){
+    const out = [];
+    const seen = new Set();
+    const add = (t) => {
+      const key = t.kind + "|" + t.playerIdx + "|" + t.zone + "|" + (t.instanceId || "");
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(t);
+    };
+    if (ci.isDamage){
+      const zone = ARROW_ZONE_BY_TYPE[ci.damageType];
+      if (zone && arena.players[ci.targetIdx]) add({ kind: "zone", playerIdx: ci.targetIdx, zone: zone, type: ci.damageType });
+      return out;
+    }
+    const card = findCard(ci.cardId);
+    const dmgEffects = card ? getEffectiveEffects(card).filter(e => e.kind === "trigger" && e.trigger === "OnResolve" && e.action === "Damage" && e.value > 0) : [];
+    const ref = ci.targetRef;
+    if (ref && arena.players[ref.playerIdx]){
+      if (ref.kind === "card"){
+        add({ kind: "card", playerIdx: ref.playerIdx, zone: ref.zone, instanceId: ref.instanceId, type: zoneAllowsCounters(ref.zone) ? PERMANENT_DAMAGE_STATKEY[ref.zone] : null });
+      } else if (ref.kind === "zone" && dmgEffects.some(e => e.target === "chosen")){
+        add({ kind: "zone", playerIdx: ref.playerIdx, zone: ref.zone, type: PERMANENT_DAMAGE_STATKEY[ref.zone] });
+      }
+    }
+    ensureArenaSettings();
+    if (arena.settings.resolveEffects && ci.casterIdx !== undefined && ci.casterIdx !== null){
+      dmgEffects.forEach(eff => {
+        let idx = null;
+        if (eff.target === "opponent" || eff.target === "opponentActiveWizard" || eff.target === "opponentZone") idx = otherPlayerIdx(ci.casterIdx);
+        else if (eff.target === "controller" || eff.target === "ownActiveWizard") idx = ci.casterIdx;
+        const zone = ARROW_ZONE_BY_TYPE[eff.damageType];
+        if (idx !== null && zone && arena.players[idx]) add({ kind: "zone", playerIdx: idx, zone: zone, type: eff.damageType });
+      });
+    }
+    return out;
+  }
+
+  function arrowEdgePoint(rect, toward, pad){
+    const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+    const dx = toward.x - cx, dy = toward.y - cy;
+    if (!dx && !dy) return { x: cx, y: cy };
+    const tx = dx ? (rect.width / 2 + pad) / Math.abs(dx) : Infinity;
+    const ty = dy ? (rect.height / 2 + pad) / Math.abs(dy) : Infinity;
+    const t = Math.min(tx, ty, 1);
+    return { x: cx + dx * t, y: cy + dy * t };
+  }
+
+  function drawStackArrow(layer, origin, srcRect, dstRect, color){
+    const sc = { x: srcRect.left + srcRect.width / 2, y: srcRect.top + srcRect.height / 2 };
+    const dc = { x: dstRect.left + dstRect.width / 2, y: dstRect.top + dstRect.height / 2 };
+    const s = arrowEdgePoint(srcRect, dc, 2);
+    const e = arrowEdgePoint(dstRect, sc, 6);
+    const dx = e.x - s.x, dy = e.y - s.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 12) return;
+    const nx = -dy / len, ny = dx / len;
+    const c = { x: (s.x + e.x) / 2 + nx * len * 0.16, y: (s.y + e.y) / 2 + ny * len * 0.16 };
+    const ex = e.x - c.x, ey = e.y - c.y;
+    const elen = Math.hypot(ex, ey) || 1;
+    const ux = ex / elen, uy = ey / elen;
+    const px = -uy, py = ux;
+    const P = (p) => (p.x - origin.left).toFixed(1) + "," + (p.y - origin.top).toFixed(1);
+    const g = document.createElementNS(ARROW_SVG_NS, "g");
+    g.style.color = color;
+    const path = document.createElementNS(ARROW_SVG_NS, "path");
+    path.setAttribute("d", `M ${P(s)} Q ${P(c)} ${P(e)}`);
+    g.appendChild(path);
+    const head = document.createElementNS(ARROW_SVG_NS, "polygon");
+    const b = { x: e.x - ux * 14, y: e.y - uy * 14 };
+    head.setAttribute("points", [P(e), P({ x: b.x + px * 7, y: b.y + py * 7 }), P({ x: b.x - px * 7, y: b.y - py * 7 })].join(" "));
+    g.appendChild(head);
+    layer.appendChild(g);
+  }
+
+  function renderStackArrows(){
+    document.querySelectorAll(".arrow-target-glow").forEach(el => {
+      el.classList.remove("arrow-target-glow");
+      el.style.removeProperty("--arrow-color");
+    });
+    const view = document.getElementById("view-arena");
+    let layer = document.getElementById("arena-arrow-layer");
+    const active = view && arena && arena.phase === "board" && Array.isArray(arena.stack) && arena.stack.length > 0;
+    if (!active){ if (layer) layer.innerHTML = ""; return; }
+    if (!layer){
+      layer = document.createElementNS(ARROW_SVG_NS, "svg");
+      layer.id = "arena-arrow-layer";
+    }
+    if (layer.parentNode !== view) view.appendChild(layer);
+    layer.innerHTML = "";
+    const origin = layer.getBoundingClientRect();
+    const stackNodes = Array.from(document.querySelectorAll("#arena-players .arena-stack-zone .arena-stack-card"));
+    arena.stack.forEach(ci => {
+      const node = stackNodes.find(n => n.dataset.instanceId === ci.instanceId);
+      if (!node) return;
+      const srcEl = node.querySelector(".arena-chip, .stack-damage-box") || node;
+      const srcRect = srcEl.getBoundingClientRect();
+      if (!srcRect.width || !srcRect.height) return;
+      stackEntryArrowTargets(ci).forEach(t => {
+        const el = t.kind === "card" ? arrowChipEl(t.playerIdx, t.zone, t.instanceId) : arrowZoneColumnEl(t.playerIdx, t.zone);
+        if (!el) return;
+        const dstRect = el.getBoundingClientRect();
+        if (!dstRect.width || !dstRect.height) return;
+        const color = ARROW_ZONE_BY_TYPE[t.type] ? `var(--stat-${t.type})` : ARROW_NEUTRAL_COLOR;
+        el.classList.add("arrow-target-glow");
+        el.style.setProperty("--arrow-color", color);
+        drawStackArrow(layer, origin, srcRect, dstRect, color);
+      });
+    });
   }
 
   function nowTimeStr(ts){

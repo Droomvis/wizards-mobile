@@ -924,6 +924,13 @@
             ${ACTION_LIST.map(a => `<option value="${a}"${eff.action === a ? " selected" : ""}>${a}</option>`).join("")}
           </select>
         </div>
+        <div class="field ef-damagetype-field" style="${(eff.action === "Damage" && !(isActivated && eff.isAttack)) ? "" : "display:none;"}">
+          <label>Schadetype</label>
+          <select class="ef-damagetype">
+            <option value="">— kies —</option>
+            ${DAMAGE_TYPE_LIST.map(t => `<option value="${t}"${eff.damageType === t ? " selected" : ""}>${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join("")}
+          </select>
+        </div>
         <div class="field">
           <label>Target</label>
           <select class="ef-target">
@@ -958,6 +965,18 @@
       renderPreview();
       autosave();
     });
+    // Schadetype-veld enkel tonen bij actie Damage (en niet bij een Attack,
+    // waar het type uit de zone van de kaart volgt).
+    const refreshDamageTypeField = () => {
+      const isDmg = row.querySelector(".ef-action").value === "Damage";
+      const kindActivated = row.querySelector(".ef-kind").value === "activated";
+      const atkEl = row.querySelector(".ef-is-attack");
+      const isAtk = kindActivated && !!(atkEl && atkEl.checked);
+      row.querySelector(".ef-damagetype-field").style.display = (isDmg && !isAtk) ? "" : "none";
+    };
+    row.querySelector(".ef-action").addEventListener("change", refreshDamageTypeField);
+    const isAttackBox = row.querySelector(".ef-is-attack");
+    if (isAttackBox) isAttackBox.addEventListener("change", refreshDamageTypeField);
     row.querySelector(".btn-add-cost").addEventListener("click", () => addCostToEffect(eff.id));
     row.querySelectorAll(".btn-remove-cost").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -1031,6 +1050,8 @@
       eff.condition = row.querySelector(".ef-condition").value;
       const isAttackEl = row.querySelector(".ef-is-attack");
       eff.isAttack = isAttackEl ? isAttackEl.checked : false;
+      const dmgTypeEl = row.querySelector(".ef-damagetype");
+      eff.damageType = (eff.action === "Damage" && !(eff.kind === "activated" && eff.isAttack) && dmgTypeEl) ? dmgTypeEl.value : "";
       if (eff.kind === "activated"){
         eff.costs = Array.from(row.querySelectorAll(".ef-costs-list .cost-row")).map(costRow => normalizeCostEntry({
           type: costRow.querySelector(".cost-type").value,
