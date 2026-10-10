@@ -951,13 +951,17 @@
   // 4) — voorheen bewust UIT als opt-in schakelaar, maar dat bleek in de
   // praktijk net de default die je toch elke keer manueel aanvinkt.
   function freshArenaSettings(){
+    // burdenDiscardStack (sinds 2026-10-10, default AAN): een Burden die bij END TURN uit
+    // de hand gediscard wordt, gaat eerst op de stack (als een gespeelde kaart zonder
+    // target, met priority-wissel) i.p.v. rechtstreeks naar de discard.
+    // discardEffects (idem): OnDiscard-schade-effecten automatisch afvuren.
     // turnRedux (sinds 2026-10-09, default AAN): alternatieve beurtstructuur.
     // END TURN voert een Rest uit (schildkeuze + actions = Body-stat) en geeft
     // de beurt door; rest verwijdert geen witte Time Counters meer en ontt​apt
     // niets (dat gebeurt enkel nog door acties te spenderen, zie
     // tickSlumberOnce); Spite zakt bij rest naar de Soul-stat i.p.v. naar 0
     // (en blijft behouden als ze al <= Soul-stat is). UIT = het oude gedrag.
-    return { autoPayCost: true, enforceCastLegality: true, resolveEnabled: true, hideOpponentHand: true, freeActionSpending: true, turnRedux: true, resolveEffects: true };
+    return { autoPayCost: true, enforceCastLegality: true, resolveEnabled: true, hideOpponentHand: true, freeActionSpending: true, turnRedux: true, resolveEffects: true, burdenDiscardStack: true, discardEffects: true };
   }
 
   function ensureArenaSettings(){
@@ -1346,7 +1350,7 @@
       // Kaart verlaat de stack via een handmatige sleepactie (i.p.v. via
       // Resolve) — de cast-metadata (caster/target/prioriteit) is dan niet
       // meer relevant en wordt opgekuist.
-      delete ci.casterIdx; delete ci.targetLabel; delete ci.destPlayerIdx; delete ci.destZone; delete ci.priorityWith;
+      delete ci.casterIdx; delete ci.targetLabel; delete ci.destPlayerIdx; delete ci.destZone; delete ci.priorityWith; delete ci.isDiscardTrigger;
     }
     if (destZone === "stack"){
       arena.stack.push(ci);
@@ -1922,11 +1926,13 @@
     entry.counters = freshCounters();
     const destPlayer = arena.players[entry.destPlayerIdx];
     const destZoneKey = entry.destZone;
-    const casterIdxForFx = entry.casterIdx, targetRefForFx = entry.targetRef || null;
-    delete entry.casterIdx; delete entry.targetLabel; delete entry.destPlayerIdx; delete entry.destZone; delete entry.priorityWith; delete entry.targetRef;
+    const casterIdxForFx = entry.casterIdx, targetRefForFx = entry.targetRef || null, wasDiscardTrigger = !!entry.isDiscardTrigger;
+    delete entry.casterIdx; delete entry.targetLabel; delete entry.destPlayerIdx; delete entry.destZone; delete entry.priorityWith; delete entry.targetRef; delete entry.isDiscardTrigger;
     destPlayer[destZoneKey].push(entry);
     logAction(`✨ "${cardName}" resolvet → ${ZONE_LABELS[destZoneKey] || destZoneKey} (${destPlayer.name})`, "resolve");
     fireOnResolveEffects(card, casterIdxForFx, targetRefForFx);
+    // Een Burden die via END TURN op de stack kwam is nu effectief gediscard.
+    if (wasDiscardTrigger) fireOnDiscardEffects(card, casterIdxForFx);
     saveArena();
     renderArenaBoard();
   }
@@ -1985,15 +1991,26 @@
   //    controller/ownActiveWizard: de caster zelf. Type = effect.damageType.
   //  - Al het andere wordt overgeslagen met een logregel (geen stille mislukking).
   function fireOnResolveEffects(card, casterIdx, targetRef){
+    fireDamageTriggerEffects("OnResolve", "resolveEffects", card, casterIdx, targetRef);
+  }
+
+  // OnDiscard (2026-10-10): zelfde smalle interpreter, enkel action:"Damage". Afgevuurd
+  // voor de eigenaar van de gediscarde kaart (= "controller"); een "chosen"-target heeft
+  // hier geen doelwit en wordt dus netjes overgeslagen met een logregel.
+  function fireOnDiscardEffects(card, ownerIdx){
+    fireDamageTriggerEffects("OnDiscard", "discardEffects", card, ownerIdx, null);
+  }
+
+  function fireDamageTriggerEffects(triggerName, settingKey, card, casterIdx, targetRef){
     if (!arena || !card || casterIdx === undefined || casterIdx === null) return;
     ensureArenaSettings();
-    if (!arena.settings.resolveEffects) return;
+    if (!arena.settings[settingKey]) return;
     const label = card.name || "(naamloos)";
-    const effects = getEffectiveEffects(card).filter(e => e.kind === "trigger" && e.trigger === "OnResolve" && e.action === "Damage");
+    const effects = getEffectiveEffects(card).filter(e => e.kind === "trigger" && e.trigger === triggerName && e.action === "Damage");
     effects.forEach(eff => {
       const amount = Math.max(0, parseInt(eff.value, 10) || 0);
       if (amount <= 0) return;
-      const skip = (why) => logAction(`⚠️ "${label}": OnResolve-schade niet toegepast — ${why}`, "damage-skip");
+      const skip = (why) => logAction(`⚠️ "${label}": ${triggerName}-schade niet toegepast — ${why}`, "damage-skip");
       const base = { sourceCardId: card.id, sourceLabel: label, casterIdx: casterIdx };
 
       if (eff.target === "chosen"){
@@ -2200,6 +2217,28 @@
     renderArenaBoard();
   }
 
+  // Burden die bij END TURN uit de hand gediscard wordt (2026-10-10): gedraagt zich als
+  // een gespeelde kaart zonder target. Geen kost, geen Spite-winst: de eigenaar is de
+  // "caster", de tegenstander krijgt eerst priority, en bij Resolve van de eigenaar
+  // verhuist de kaart naar zijn discard (resolveStackTop) en vuren OnResolve- en
+  // OnDiscard-effecten af.
+  function pushBurdenToStack(ownerIdx, ci){
+    const card = findCard(ci.cardId);
+    ci.tapped = false;
+    ci.counters = freshCounters();
+    ci.casterIdx = ownerIdx;
+    ci.targetLabel = "(geen specifiek doel)";
+    ci.destPlayerIdx = ownerIdx;
+    ci.destZone = "discard";
+    ci.targetRef = null;
+    ci.priorityWith = otherPlayerIdx(ownerIdx);
+    ci.isDiscardTrigger = true;
+    arena.stack.push(ci);
+    logAction(`☠️ Burden "${card ? (card.name || "(naamloos)") : "(verwijderde kaart)"}" van ${arena.players[ownerIdx].name} gaat bij END TURN op de stack`, "burden-stack");
+    saveArena();
+    renderArenaBoard();
+  }
+
   // Einde-beurt: de eerste kaarten in de hand (t.e.m. de Mind-stat van de
   // speler) blijven automatisch behouden, de rest wordt gediscard. De
   // speler bepaalt zelf welke dat zijn door de kaartfiches in zijn hand
@@ -2212,8 +2251,19 @@
     if (p.hand.length > mind){
       const toDiscard = p.hand.slice(mind);
       p.hand = p.hand.slice(0, mind);
-      toDiscard.forEach(ci => { ci.tapped = false; ci.counters = freshCounters(); p.discard.push(ci); });
+      ensureArenaSettings();
+      const burdensToStack = [], discardedCards = [];
+      toDiscard.forEach(ci => {
+        const dCard = findCard(ci.cardId);
+        if (arena.settings.burdenDiscardStack && dCard && dCard.type === "Burden"){ burdensToStack.push(ci); return; }
+        ci.tapped = false; ci.counters = freshCounters(); p.discard.push(ci);
+        discardedCards.push(dCard);
+      });
       logAction(`⏭️ ${p.name} beëindigt de beurt — eerste ${mind} kaart(en) in hand behouden, ${toDiscard.length} gediscard`, "turn-end");
+      // Burdens eerst op de stack, daarna de OnDiscard-effecten van de rechtstreeks
+      // gediscarde kaarten (Burdens op de stack vuren pas bij hun Resolve).
+      burdensToStack.forEach(ci => pushBurdenToStack(playerIdx, ci));
+      discardedCards.forEach(dCard => { if (dCard) fireOnDiscardEffects(dCard, playerIdx); });
     } else {
       logAction(`⏭️ ${p.name} beëindigt de beurt`, "turn-end");
     }
@@ -2683,6 +2733,8 @@
         <label><input type="checkbox" id="setting-freeaction" ${s.freeActionSpending ? "checked" : ""}> Vrij acties spenderen — meerdere actie-kaarten na elkaar casten binnen je beurt zonder op priority te wachten (uitvinken = oud gedrag: max. één kaart tegelijk op de stack per beurt)</label>
         <label><input type="checkbox" id="setting-turnredux" ${s.turnRedux ? "checked" : ""}> Turn redux — END TURN = Rest (schildkeuze, acties = Body-stat); rest verwijdert geen Time Counters meer en onttapt niets; Spite zakt naar Soul-stat (uitvinken = oud gedrag)</label>
         <label><input type="checkbox" id="setting-resolveeffects" ${s.resolveEffects ? "checked" : ""}> Effecten bij resolve — OnResolve-schade van een gecaste kaart automatisch afvuren (uitvinken = enkel de handmatige "Schade op de stack"-knop)</label>
+        <label><input type="checkbox" id="setting-burdenstack" ${s.burdenDiscardStack ? "checked" : ""}> Burden-discard — een Burden die bij END TURN gediscard wordt gaat eerst op de stack (priority-wissel, geen target) i.p.v. rechtstreeks naar de discard</label>
+        <label><input type="checkbox" id="setting-discardeffects" ${s.discardEffects ? "checked" : ""}> Effecten bij discard — OnDiscard-schade automatisch afvuren (enkel bij END TURN-discard)</label>
         <div class="settings-hint">Uit = die controle/knop staat helemaal stil — handig om heel gericht één ding tegelijk te testen. De face-down instelling geldt enkel in netwerkmodus (verbonden met een tegenstander); in solo-test zie je sowieso altijd beide handen.</div>
       </div>
     `;
@@ -2892,6 +2944,18 @@
         settingsPopoverEl.querySelector("#setting-resolveeffects").addEventListener("change", (e) => {
           ensureArenaSettings();
           arena.settings.resolveEffects = e.target.checked;
+          saveArena();
+          renderArenaBoard();
+        });
+        settingsPopoverEl.querySelector("#setting-burdenstack").addEventListener("change", (e) => {
+          ensureArenaSettings();
+          arena.settings.burdenDiscardStack = e.target.checked;
+          saveArena();
+          renderArenaBoard();
+        });
+        settingsPopoverEl.querySelector("#setting-discardeffects").addEventListener("change", (e) => {
+          ensureArenaSettings();
+          arena.settings.discardEffects = e.target.checked;
           saveArena();
           renderArenaBoard();
         });
@@ -3231,7 +3295,7 @@
       return out;
     }
     const card = findCard(ci.cardId);
-    const dmgEffects = card ? getEffectiveEffects(card).filter(e => e.kind === "trigger" && e.trigger === "OnResolve" && e.action === "Damage" && e.value > 0) : [];
+    const dmgEffects = card ? getEffectiveEffects(card).filter(e => e.kind === "trigger" && (e.trigger === "OnResolve" || (ci.isDiscardTrigger && e.trigger === "OnDiscard")) && e.action === "Damage" && e.value > 0) : [];
     const ref = ci.targetRef;
     if (ref && arena.players[ref.playerIdx]){
       if (ref.kind === "card"){
