@@ -271,6 +271,9 @@ bij schade aan een specifieke kaart-instantie, niet aan een hele zone). De
 exacte spelerskeuze-UI voor de verdediger, en het Flying-keyword (dat de
 Attack later alternatief zou mogen targetten, defender's choice omzeild),
 zijn beide nog niet gebouwd — genoteerd als latere uitbreiding.
+[ACHTERHAALD 2026-09-29: de "defender's choice"-formulering in deze alinea
+(schild OF sacrifice OF banish) is vervangen door het blokkeer-model — zie
+de entry "Op 2026-09-29" onderaan dit bestand.]
 
 4) Vrij toegevoegde subtypes (cfr. Gamerules-specificatie.txt sectie 6),
 zelfde datum: een "+ Nieuw subtype"-chip in de subtype-rij van zowel
@@ -380,6 +383,29 @@ eigen opgeslagen instelling, zodat beide spelers gegarandeerd op dezelfde
 relay-server landen ook al hebben ze elk een ander adres ingesteld. Buiten
 de shell geopend (window.self === window.top) toont council.html enkel de
 roomcode als tekst, geen automatische doorschakeling mogelijk.
+
+
+Op 2026-10-09 toegevoegd: "turn redux" in arena.html (alternatieve
+beurtstructuur, toggle in het tandwiel-menu, arena.settings.turnRedux,
+default AAN; bestaande autosaves krijgen via ensureArenaSettings() ook true).
+UIT = exact het oude gedrag.
+
+1) END TURN (requestEndTurn): opent eerst dezelfde schildkeuze als de Rest-
+knop, voert dan restPlayer() uit en daarna endPlayerTurn() (hand-behoud tot
+Mind-stat, tegenstander begint zijn beurt en trekt 5). Popup sluiten zonder
+keuze = niets gebeurt.
+
+2) restPlayer() met turnRedux: verwijdert geen witte Time Counters meer van
+je permanents en onttapt niets (dat gebeurt enkel nog door acties te
+spenderen: spendAction/castCardToStack -> tickSlumberOnce, ongewijzigd).
+Spite wordt niet meer naar 0 gezet maar zakt naar de huidige Soul-stat, of
+blijft behouden als ze al <= Soul-stat is. Actions = Body-stat blijft zoals
+voorheen. Dit geldt ook voor de losse Rest-knop.
+
+3) Casten/stack/priority (checkCastLegality, castCardToStack, resolveStackTop)
+zijn ongewijzigd: speler A betaalt acties, kaart gaat op de stack, B krijgt
+eerst priority, daarna A (Resolve). De bestaande instelling "Vrij acties
+spenderen" blijft onafhankelijk daarvan werken.
 
 Op 2026-09-02 toegevoegd: nieuwe optie "Vrij acties spenderen" in het
 tandwiel/test-instellingen-menu'tje van arena.html (arena.settings.
@@ -502,3 +528,109 @@ ernaast) — al maakt de exacte volgorde t.o.v. card-render.js in de
 praktijk niet uit, want TYPE_CONFIG (uit card-render.js, gebruikt door
 checkCastLegality) wordt pas gelezen op het moment dat de functie
 AANGEROEPEN wordt, niet bij het laden van het bestand zelf.
+
+Op 2026-09-29 vastgelegd (opschoning van tegenstrijdigheden rond het
+schademodel van een zone-attack): het geldende model is definitief het
+BLOKKEER-MODEL uit Interpreter-specificatie (Minion-Attack).txt sectie 3
+(beslist 2026-09-09) — en dus niet de "verdediger kiest één entiteit"-
+variant uit Gamerules-specificatie.txt sectie 2f punt 7 (2026-09-11), noch
+de "defender's choice: schild OF sacrifice OF banish"-formulering uit punt
+3b van 2026-08-23. Vaste volgorde: (1) BLOKKEREN — de verdediger mag
+optioneel kaarten uit de getargette zone offeren ("saccen"), elke
+geofferde kaart trekt integraal haar eigen relevante Body/Mind/Soul-stat
+af van de schade (minimum nul) en krijgt zelf geen schade;
+(2) SCHILD — automatisch, de schildwaarde daalt met het resterende
+bedrag; (3) BANISH — automatisch, met wat dan nog overblijft. Bijgewerkt:
+Gamerules-specificatie.txt (2e, 2f), Interpreter-specificatie (Minion-
+Attack).txt (status + sectie 3), shared/game-rules.js (comment bij
+SUBTYPE_EFFECTS.Minion), TO DO.txt (Thema 2) en deze entry. De
+permanent-schaderegel uit punt 2 van 2026-08-23 (zwarte teller,
+Vulnerable/Confused/Forlorn, dood bij nieuwe schade) is hierdoor NIET
+gewijzigd. Eveneens beslist op 2026-09-29 (vraag G): een Attack loopt
+letterlijk via de stack met priority — de tegenstander kan er nog op
+reageren vóór ze resolvet, en het blokkeren gebeurt bij het resolven.
+Dat vergt later een stack-entry zonder kaart en een aanpassing van de
+stack-rendering. Eveneens beslist (vragen H, I, K): blokkeren is offeren
+zonder schade op de geofferde kaart, en de permanent-schaderegel 2c
+(zwarte bolletjes) blijft een apart systeem voor direct damage en later
+Flying. Eveneens beslist (vraag J en de banish-bron): de banish is
+automatisch, 1 kaart per resterend schadepunt, per as uit deck (Body,
+top), hand (Mind, willekeurig) of discard (Soul, willekeurig), zoals in
+Gamerules-specificatie.txt 2f punt 3; de winconditie "niet kunnen
+trekken" blijft. Eveneens beslist (vraag H2): een geofferde kaart gaat naar
+de discard en over-saccen mag. Een Destiny die play verlaat wordt door een
+aparte, algemene regel altijd gebanisht (Gamerules-specificatie.txt 2c,
+cfr. Wizards 0.7.docx); die regel is nog NIET gebouwd: arena.html stuurt
+een gestorven Destiny vandaag naar de discard. Eveneens beslist (vraag L en
+L2): de definitieve schade wordt bij resolutie bepaald en kan tot dan nog
+door andere kaarten of effecten verhoogd of verlaagd worden (bv. "prevent
+up to 3 damage"); basiswaarde en schadetype liggen als momentopname vast
+bij activatie en staan in het stack-entry; de Attack resolvet ook als de
+Minion weg is. Alle vragen in de Interpreter-specificatie zijn daarmee
+beantwoord.
+
+Op 2026-10-09 toegevoegd: damage op de stack (playtest-versie, arena.html +
+shared/game-mechanics.js). Omdat er geen server/scheidsrechter is, beslist de
+GETROFFEN speler zelf: schade is een aparte stack-entry (isDamage:true, geen
+kaart: casterIdx, targetIdx, damageType body/mind/soul, amount, baseAmount,
+priorityWith = doelwit) met een X-stepper (door beide clients aanpasbaar, voor
+manuele mitigatie) en een knop "Take X [Body/Mind/Soul] damage" die enkel
+klikbaar is voor de client van het doelwit, enkel op de bovenste entry, en
+enkel als Resolve aanstaat. De klik haalt de entry van de stack en voert
+banishForWizardDamage() uit (game-mechanics.js): 1 kaart per punt, Body = top
+van het deck, Mind = willekeurig uit de hand, Soul = willekeurig uit de
+discard; minder kaarten dan schade = banisht wat er is (gelogd). Bewust
+MANUEEL voor nu: schild, offeren en prevent (X aanpassen vóór de klik) — dit
+vervangt voorlopig stap 5 (blok-UI + automatische schild-aftrek) uit de
+Interpreter-specificatie; de automatische versie blijft het eindplan.
+Producers: (1) "⚔ Attack" in de zoom-overlay van een in-play kaart met een
+activated isAttack-effect (Minion): exhaust (met Slumber), waarde = stat in
+de zone waarin ze ligt, type = die zone, doel = Wizard van de tegenstander;
+(2) "💥 Schade op de stack…" in de zoom-overlay van een gecaste kaart op de
+stack (direct damage): type kiest de caster, X start op het eerste Damage-
+effect (of 1), schade komt BOVEN de spell op de stack. Een effect heeft nog
+geen damageType-veld, vandaar de keuze; automatisch afvuren bij resolutie van
+de spell vergt dat veld. Niet afgedwongen: beurt/priority voor het activeren
+van een Attack. Niet in de browser getest; de banish-functie is los met Node
+getest.
+
+Op 2026-10-10 toegevoegd: schadetype + OnResolve-trigger op effecten.
+card-data.js: nieuwe trigger "OnResolve" in TRIGGER_LIST, DAMAGE_TYPE_LIST
+(["body","mind","soul"]) en een veld damageType op elk effect
+(normalizeEffect; enkel gevuld bij action "Damage" en niet bij een Attack,
+waar het type uit de zone van de kaart volgt). cardbuilder.html: een
+"Schadetype"-select in de effecten-editor, zichtbaar zodra Actie = Damage.
+arena.html: "Schade op de stack..." slaat de typekeuze over als het Damage-
+effect een damageType heeft. NOG NIET gebouwd: automatisch afvuren van
+OnResolve (vergt de generieke trigger-interpreter), schade op een gekozen
+Manifestation/Destiny of zone (target "chosen" wordt nergens in arena.html
+gelezen; de damage-entry op de stack kent enkel een Wizard als doelwit).
+Niet in de browser getest.
+
+Zelfde datum, vervolg: eerste OnResolve-interpreter (arena.html,
+fireOnResolveEffects, aangeroepen in resolveStackTop). Beslissingen: het
+doelwit wordt bij het CASTEN gekozen (de sleepbestemming: een kaart in play,
+of een In Play-zone; opgeslagen als ci.targetRef); een spell mag ook eigen
+kaarten/zones targetten; zone-schade = damage-entry op de stack tegen de
+Wizard van die speler met als type de zone, dus precies als een Minion-
+Attack. Target "chosen" op een kaart: enkel Manifestation/Destiny in play,
+schade = zwarte teller per punt (regel 2c, incl. dood), niet via de stack.
+opponent/opponentActiveWizard/opponentZone en controller/ownActiveWizard
+gebruiken effect.damageType. Alles anders wordt met een logregel
+overgeslagen. Eigen vinkje in het tandwiel-menu: "Effecten bij resolve"
+(arena.settings.resolveEffects, default aan). Niet in de browser getest.
+Open: de handmatige knop "Schade op de stack..." kan dubbel tellen met
+OnResolve-schade; blokkeren/schild bij zone-schade door een spell blijft
+zoals bij een Attack (nog manueel via X).
+
+Zelfde datum, pijl-overlay (arena.html, renderStackArrows): elke entry op de
+stack krijgt een geanimeerde pijl naar zijn doelwit, in een SVG-laag in
+#view-arena (position:fixed; zo blijft ze zichtbaar in zen/fullscreen),
+hertekend na elke renderArenaBoard() en bij resize/scroll. Doelwit: een
+damage-entry wijst naar de Body/Mind/Soul-kolom van het getroffen speler; een
+kaart met gekozen doelwit (ci.targetRef) naar die kaart, of naar de gekozen
+zone-kolom; een kaart met OnResolve-schade op tegenstander/caster naar de
+kolom van het damageType. Pijlkleur = het schadetype (--stat-body/mind/soul),
+neutraal goud voor een kaart zonder schadetype; het doelwit krijgt een gloed
+(.arrow-target-glow). Puur visueel, leest enkel de arena-state. Niet in de
+browser getest.

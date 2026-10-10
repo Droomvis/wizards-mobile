@@ -13,7 +13,7 @@
    gecachete bestanden, anders blijft een oude versie hangen bij offline gebruik.
    ========================================================================= */
 
-const CACHE_NAME = "wizards-mobile-shell-v1";
+const CACHE_NAME = "wizards-mobile-shell-v2";
 const SHELL_FILES = [
   "./Wizards_Mobile.html",
   "./manifest.webmanifest",
