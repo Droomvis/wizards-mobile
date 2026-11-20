@@ -929,6 +929,13 @@
             ${ACTION_LIST.map(a => `<option value="${a}"${eff.action === a ? " selected" : ""}>${a}</option>`).join("")}
           </select>
         </div>
+        <div class="field ef-burden-field" style="${eff.action === "Inflict" ? "" : "display:none;"}">
+          <label>Burden</label>
+          <select class="ef-burden">
+            <option value="">— kies een Burden —</option>
+            ${collection.filter(c => c.type === "Burden").map(c => `<option value="${escapeHtml(c.id)}"${eff.burdenId === c.id ? " selected" : ""}>${escapeHtml(c.name || "(naamloos)")}</option>`).join("")}
+          </select>
+        </div>
         <div class="field ef-damagetype-field" style="${(eff.action === "Damage" && !(isActivated && eff.isAttack)) ? "" : "display:none;"}">
           <label>Schadetype</label>
           <select class="ef-damagetype">
@@ -943,7 +950,7 @@
           </select>
         </div>
         <div class="field">
-          <label>Waarde</label>
+          <label class="ef-value-label">${eff.action === "Inflict" ? "Aantal" : "Waarde"}</label>
           <input type="number" class="ef-value" value="${eff.value || 0}" step="1">
         </div>
       </div>
@@ -979,6 +986,15 @@
       const atkEl = row.querySelector(".ef-is-attack");
       const isAtk = kindActivated && !!(atkEl && atkEl.checked);
       row.querySelector(".ef-damagetype-field").style.display = (isDmg && !isAtk) ? "" : "none";
+      // Inflict: Burden-keuze tonen; Waarde heet dan Aantal (default 1).
+      const isInfl = row.querySelector(".ef-action").value === "Inflict";
+      row.querySelector(".ef-burden-field").style.display = isInfl ? "" : "none";
+      row.querySelector(".ef-value-label").textContent = isInfl ? "Aantal" : "Waarde";
+      const valEl = row.querySelector(".ef-value");
+      if (isInfl && !(Number(valEl.value) > 0)){
+        valEl.value = 1;
+        valEl.dispatchEvent(new Event("input", { bubbles: true }));
+      }
     };
     row.querySelector(".ef-action").addEventListener("change", refreshDamageTypeField);
     const isAttackBox = row.querySelector(".ef-is-attack");
@@ -1016,6 +1032,11 @@
     const box = row.querySelector(".effect-warnings");
     if (!box) return;
     const issues = effectIssues(eff);
+    // Collectie-check hoort hier (effectIssues in card-data.js kent de collectie niet).
+    if (eff.action === "Inflict" && eff.burdenId){
+      const b = findCard(eff.burdenId);
+      if (!b || b.type !== "Burden") issues.push("De gekozen Burden bestaat niet (meer) in de collectie of is geen Burden-kaart.");
+    }
     box.style.display = issues.length ? "" : "none";
     box.innerHTML = issues.map(i => `<div>⚠ ${escapeHtml(i)}</div>`).join("");
   }
@@ -1077,6 +1098,8 @@
       eff.isAttack = isAttackEl ? isAttackEl.checked : false;
       const dmgTypeEl = row.querySelector(".ef-damagetype");
       eff.damageType = (eff.action === "Damage" && !(eff.kind === "activated" && eff.isAttack) && dmgTypeEl) ? dmgTypeEl.value : "";
+      const burdenEl = row.querySelector(".ef-burden");
+      eff.burdenId = (eff.action === "Inflict" && burdenEl) ? burdenEl.value : "";
       if (eff.kind === "activated"){
         eff.costs = Array.from(row.querySelectorAll(".ef-costs-list .cost-row")).map(costRow => normalizeCostEntry({
           type: costRow.querySelector(".cost-type").value,

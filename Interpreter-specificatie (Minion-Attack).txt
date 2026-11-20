@@ -1,6 +1,17 @@
 Interpreter-specificatie: Minion-Attack & Activated Abilities
 =======================================================================
-STATUS: OPEN VRAGEN — dit document is nog niet klaar om op te bouwen.
+STATUS: ALLE OPEN VRAGEN BEANTWOORD (2026-09-29) — het stappenplan in
+sectie 5 kan uitgevoerd worden na een laatste nazicht door de auteur.
+BIJGEWERKT 2026-09-29: het blokkeer-model uit sectie 3 is
+definitief bevestigd als het enige geldende schademodel voor een zone-
+attack (Gamerules-specificatie.txt sectie 2e/2f zijn daarop aangepast).
+Ook beslist (2026-09-29): vraag G (een Attack loopt via de stack), vraag H
+en I (blokkeren = een kaart integraal offeren; naar de discard, over-
+saccen mag: vraag H2), vraag J (banish is automatisch, per as uit deck/
+hand/discard), vraag K (regel 2c blijft een apart systeem) en vraag L en
+L2 (basiswaarde en schadetype liggen vast bij activatie, aanpassingen
+komen bij resolutie erbovenop, en de Attack resolvet ook als de Minion
+weg is).
 Net als bij Gamerules-specificatie.txt volgen we eerst het antwoord-
 patroon (voorstel + expliciete open vraag) vóór er code geschreven wordt.
 Reden voor de extra behoedzaamheid t.o.v. eerdere rondes: dit is de EERSTE
@@ -87,92 +98,108 @@ VRAAG B + D — SAMENGEVOEGD: het resolutiemechanisme
 BESLIST, drie stappen in volgorde zodra een Attack (of eender welke
 damage) resolvet:
   1. BLOKKEREN (optioneel, verdediger kiest): de verdediger mag kaarten
-     UIT DE GETARGETTE ZONE selecteren; elke geselecteerde kaart trekt
-     zijn eigen relevante B/M/S-stat af van de binnenkomende damage.
+     UIT DE GETARGETTE ZONE OFFEREN ("saccen"); elke geofferde kaart
+     trekt integraal haar eigen relevante B/M/S-stat af van de
+     binnenkomende damage (minimum nul), en krijgt zelf geen schade
+     (beslist 2026-09-29, zie vraag H, H2 en I); de geofferde kaart gaat
+     naar de discard.
   2. SCHILD (automatisch): wat na het blokkeren overblijft ("unblocked
      damage") gaat eerst automatisch op het schild van het
      overeenkomstige type — de schild-COUNTER-waarde zelf gaat naar
      beneden met het schade-bedrag (dus Optie 2 uit de vorige versie van
      dit document: geen vaste -1, maar -waarde).
-  3. BANISH (automatisch): wat na het schild nog overblijft, banisht
-     kaarten uit de getargette zone.
+  3. BANISH (automatisch): wat na het schild nog overblijft, wordt 1-op-1
+     omgezet in gebanishte kaarten, per schadetype uit deck/hand/discard
+     van de Wizard (Body: top van het deck; Mind: willekeurige kaarten uit
+     de hand; Soul: willekeurige kaarten uit de discard) — cfr.
+     Gamerules-specificatie.txt 2f punt 3, bevestigd 2026-09-29. (De
+     oorspronkelijke formulering "uit de getargette zone" is vervallen.)
 Dit is dus geen keuze tussen drie ALTERNATIEVEN (schild ÓF sacrifice ÓF
-banish, zoals Gamerules-specificatie.txt sectie 2e nu nog stelt) maar een
+banish, zoals Gamerules-specificatie.txt sectie 2e vroeger stelde) maar een
 vaste VOLGORDE van drie stappen die na elkaar hetzelfde damage-bedrag
-afbouwen. Zie punt 4 hieronder — dit is een inhoudelijke aanpassing t.o.v.
-de eerder vastgelegde sectie 2e, nog niet doorgevoerd in dat document.
+afbouwen. Dit is een inhoudelijke aanpassing t.o.v. de eerder vastgelegde
+sectie 2e; DOORGEVOERD op 2026-09-29 in Gamerules-specificatie.txt (2e en
+2f), Architectuur.txt, shared/game-rules.js en TO DO.txt. Gamerules-
+specificatie 2f punt 7 (verdediger kiest één entiteit, 2026-09-11) is daarbij
+VERVALLEN ten gunste van dit blokkeer-model.
 
 
-4. NIEUWE OPEN DEELVRAGEN (voortvloeiend uit de beslissing hierboven)
+4. DEELVRAGEN (voortvloeiend uit de beslissing hierboven) — ALLE BEANTWOORD
 ------------------------------------------------------------------------
 Deze zijn kleiner/gerichter dan de vorige ronde, maar wel nodig om stap 1
 te kunnen coderen zonder te gokken:
 
 VRAAG G — "Op de stack" — letterlijk, of gewoon "met priority"?
-Je formulering ("als er een attack... op de stack ligt en deze
-resolvet") doet vermoeden dat een Attack door dezelfde stack/priority/
-Resolve-flow moet lopen als een cast. Technisch obstakel: arena.stack
-verwacht vandaag altijd een echte kaart-INSTANTIE (met cardId, getekend
-als volledige kaartfiche via buildStackCardNode) — een aanvallende
-Minion blijft zelf gewoon getapt in zijn eigen zone liggen, dus letterlijk
-"de Attack op de stack zetten" zou een nieuw soort stack-item vergen dat
-geen kaart is (en dus ook een aanpassing aan buildStackCardNode/
-renderArenaBoard om zoiets te tekenen).
-Twee opties:
-  (g1) Letterlijk op de stack: een synthetisch stack-entry
-       ({ isAbility:true, sourceInstanceId, damageValue, damageType,
-       targetZone, ... } i.p.v. { cardId, ... }) — geeft "gratis" de
-       bestaande priority/Resolve-mechaniek (tegenstander kan nog iets
-       tussendoor casten vóór de Attack resolvet), maar vergt wijzigingen
-       aan de stack-rendering die vandaag overal cardId aanneemt.
-  (g2) Los van de stack: de Attack resolvet meteen bij activatie (geen
-       priority-venster voor de tegenstander), en enkel het BLOKKEREN
-       hierboven (stap 1) is de interactieve stap voor de verdediger —
-       functioneel gelijkaardig resultaat (de verdediger krijgt nog
-       steeds een moment om te reageren), maar zonder de stack-datamodel
-       te moeten uitbreiden.
--> Welke van de twee bedoelde je? Als (g1): heb je er iets op tegen dat
-   de tegenstander dan, net als bij een gewone cast, nog een kaart mag
-   tussenwerpen vóór de Attack resolvet — of moet een Attack net NIET
-   onderbroken kunnen worden?
+BESLIST 2026-09-29: (g1), letterlijk op de stack. Een Attack loopt door
+dezelfde stack/priority/Resolve-flow als een cast: de tegenstander mag,
+net als bij een gewone cast, nog iets tussenwerpen vóór de Attack
+resolvet — een Attack kan dus onderbroken worden. Het blokkeren (stap 1
+in sectie 3) gebeurt pas bij het resolven, niet bij het activeren.
+Gevolg voor de bouw: een synthetisch stack-entry (bv. { isAbility:true,
+sourceInstanceId, damageValue, damageType (momentopname bij activatie,
+vraag L2), targetZone, ... } i.p.v.
+{ cardId, ... }) en aanpassing van de stack-rendering
+(buildStackCardNode/renderArenaBoard), die vandaag overal een cardId
+aanneemt. Bewust NIET gekozen: (g2), de Attack meteen laten resolven
+zonder priority-venster.
 
 VRAAG H — Lot van de geblokkeerde kaarten
-Als de verdediger een kaart selecteert om te blokkeren (stap 1): heeft
-dat voor DIE kaart zelf een gevolg (bv. schade-teller erop, of ze wordt
-zelf getapt), of is blokkeren gratis oftewel "kosteloos" gebruik van zijn
-stat, zonder enig gevolg voor de blokkerende kaart zelf?
+BESLIST 2026-09-29: blokkeren = OFFEREN ("saccen"). De kaart wordt
+integraal geofferd en krijgt GEEN schade (geen zwarte teller, geen
+Vulnerable/Confused/Forlorn-status); ze trekt haar relevante stat af van
+de binnenkomende schade. Blokkeren is dus niet kosteloos: de kaart gaat
+verloren. Ze gaat naar de discard: zie vraag H2.
+
+VRAAG H2 — Bestemming van een geofferde kaart
+BESLIST 2026-09-29: een geofferde kaart gaat naar de discard. Over-saccen
+mag: de verdediger mag meer offeren dan nodig, de kaart gaat dan gewoon
+toch naar de discard (geen extra effect, zie vraag I). Uitzondering: een
+Destiny die play verlaat wordt gebanisht door een aparte, algemene regel
+(Gamerules-specificatie.txt 2c), onafhankelijk van het offer-mechanisme;
+een geofferde Destiny eindigt dus gebanisht.
 
 VRAAG I — Hoeveel schade absorbeert één geblokkeerde kaart?
-Trekt een geselecteerde kaart zijn VOLLEDIGE relevante stat af (dus een
-kaart met Body 3 trekt altijd 3 af, ongeacht de resterende damage), of
-kan een kaart ook maar gedeeltelijk "verbruikt" worden als de resterende
-damage kleiner is dan zijn stat? (Relevant voor eventuele overkill-
-boekhouding, maar heeft voorlopig geen gevolg zolang blokkeren zelf
-kosteloos is — zie vraag H.)
+BESLIST 2026-09-29: de VOLLEDIGE relevante stat, of niets: een kaart wordt
+integraal geofferd en trekt haar hele stat af (Body 3 = altijd 3). De
+schade gaat niet onder nul; over-saccen heeft geen extra effect (geen
+overloop).
 
 VRAAG J — Automatisch banishen: welke kaarten, in welke volgorde?
-Bij stap 3 (banish uit de zone): kiest het systeem dit automatisch (en zo
-ja, op basis van welke regel — laagste stat eerst? volgorde in de zone?
-willekeurig?), of moet de verdediger ook hier zelf kiezen welke kaart(en)
-eraan gaan? En verbruikt elke gebanishte kaart zijn eigen stat van de
-resterende damage (zelfde rekenwijze als blokkeren), of banisht één punt
-restschade gewoon exact één kaart, ongeacht diens stat?
+BESLIST 2026-09-29 (via de bevestiging van Gamerules-specificatie.txt 2f
+punt 3): volledig automatisch, zonder keuze van de verdediger. Elk
+resterend schadepunt banisht exact één kaart, ongeacht diens stat (1-op-1,
+geen stat-aftrek zoals bij het offeren). Body-schade: van de top van het
+deck; Mind-schade: willekeurige kaarten uit de hand; Soul-schade:
+willekeurige kaarten uit de discard. Een Wizard zonder schild op die as
+banisht gewoon X kaarten bij X schade.
 
 VRAAG K — Sectie 2c (permanent-schade/Vulnerable-regel) vs. dit nieuwe
 mechanisme
-De bestaande Vulnerable/Confused/Forlorn-regel (Gamerules-specificatie.txt
-sectie 2c, al gebouwd in addCounterToInstance) doodt een kaart die AL
-Vulnerable was bij de eerstvolgende schade, ongeacht hoeveel. Blijft die
-regel gewoon INTACT en apart bestaan naast dit nieuwe blok/schild/banish-
-mechanisme (bv. voor schade die niet via een Attack maar via de zwarte
-teller in de zoom-view handmatig wordt toegediend), of moet dit nieuwe
-mechanisme die oudere regel vervangen/erin geïntegreerd worden?
+BESLIST 2026-09-29: regel 2c blijft een APART systeem naast het blokkeer-
+model. Blokkeren (offeren) raakt 2c niet. De zwarte-bolletjes-regel (2c)
+geldt voor schade aan een specifieke permanent: direct damage, en later
+het Flying-keyword, dat een Manifestation/Destiny rechtstreeks target —
+niet voor de resolutie van een zone-attack.
 
-Aanbeveling: dit lijkt me een uitstekend moment om Gamerules-
-specificatie.txt sectie 2e ook effectief bij te werken zodra vraag G t.e.m.
-K beantwoord zijn — die sectie beschrijft nu nog de oude
-"kies-één-van-de-drie"-versie. Zal ik dat doen zodra we hier uit zijn, of
-hou je dat liever apart?
+VRAAG L — Timing van waarde en bron bij een Attack op de stack
+BESLIST 2026-09-29 (volgt uit het besluit bij vraag G): de definitieve
+schade wordt bij RESOLUTIE bepaald, niet bij activatie. Tussen activatie
+en resolutie kan ze nog verhoogd of verlaagd worden door andere kaarten
+of effecten (bv. een kaart als "prevent up to 3 damage"). Is de bron-
+Minion intussen weg (bv. gediscard of gebanisht), dan resolvet de Attack
+nog steeds.
+
+VRAAG L2 — Basiswaarde van een Attack als de Minion weg is
+BESLIST 2026-09-29: (a), een momentopname bij activatie. De basiswaarde
+en het schadetype (de stat van de Minion in de zone waar ze op dat moment
+lag) liggen vast bij het activeren en worden in het stack-entry bewaard;
+aanpassingen op de stack komen bij resolutie erbovenop. Bewust NIET
+gekozen: (b), herberekenen bij resolutie op basis van de laatst bekende
+stat en zone.
+
+[AFGEHANDELD 2026-09-29: de aanbeveling om Gamerules-specificatie.txt
+sectie 2e bij te werken is uitgevoerd; alle vragen zijn inmiddels
+beantwoord.]
 
 
 5. VOORGESTELD STAPPENPLAN (uit te voeren NA de open vragen hierboven)
@@ -207,13 +234,13 @@ zone), die de stat (body/mind/soul) + het schadetype teruggeeft o.b.v. de
 zone waarin de Minion op dat moment ligt — rechtstreeks overgenomen uit
 Gamerules-specificatie.txt sectie 2c/2e, geen nieuwe regel.
 
-Stap 4 — Op de stack zetten of meteen resolven (invulling hangt af van
-vraag G)
-Bij (g1): synthetisch stack-entry pushen + stack-rendering aanpassen
-voor niet-kaart-entries. Bij (g2): meteen doorgaan naar stap 5.
+Stap 4 — Op de stack zetten (beslist 2026-09-29: g1, zie vraag G)
+Synthetisch stack-entry pushen + stack-rendering aanpassen voor niet-
+kaart-entries. Stap 5 (blokkeren/schild/banish) gebeurt pas bij het
+resolven van dat stack-entry.
 
-Stap 5 — Blokkeren/schild/banish-mechanisme (invulling hangt af van
-vragen H/I/J/K)
+Stap 5 — Blokkeren/schild/banish-mechanisme (alle vragen H t/m L2 zijn
+beslist op 2026-09-29)
 Blok-UI voor de verdediger (kaarten uit de zone selecteren) ->
 schade-bedrag herberekenen -> automatische schild-aftrek -> automatische
 banish voor de rest. Elke deelstap een eigen, apart testbare functie in
@@ -238,7 +265,8 @@ vorige gamerules-ronde.
 
 6. EXPLICIET BUITEN SCOPE (voor nu)
 --------------------------------------
-- Flying-keyword (alternatieve targeting, omzeilt defender's choice)
+- Flying-keyword (alternatieve targeting: rechtstreeks een specifieke
+  Manifestation/Destiny via het 2c-schadesysteem, i.p.v. de zone-resolutie)
 - Een generieke TRIGGER-interpreter voor de rest van TRIGGER_LIST
   (OnPlayed, OnRest, StartOfTurn, ...) — dit document behandelt enkel de
   ene ACTIVATED/Attack-ability die al volledig gespecificeerd is

@@ -1,0 +1,341 @@
+Inflict-specificatie: Burdens automatisch inflicten (trigger + resolve)
+=======================================================================
+IMPLEMENTATIE 2026-11-07 (stappen 1 t/m 7 gebouwd, nog NIET in de browser getest):
+- Deelvragen 1-6 bevestigd door de auteur (vraag 2: een kaart met een Damage- EN een
+  Inflict-effect geeft twee stack-entries, dus twee acties voor het slachtoffer).
+- Afwijking van 5.5: fireDamageTriggerEffects is NIET omgebouwd tot een handler-tabel.
+  Die functie is ongewijzigd gebleven (nul risico voor het bestaande schadegedrag) en
+  Inflict heeft een eigen functie fireInflictTriggerEffects. De wrappers
+  fireOnResolveEffects/fireOnDiscardEffects roepen er nu beide aan: eerst Damage,
+  dan Inflict (de Inflict-entry ligt dus bovenaan de stack).
+- Gewijzigd: shared/card-data.js, shared/game-mechanics.js, arena.html, cardbuilder.html.
+- Nieuw in arena.html: fireInflictTriggerEffects, pushInflictToStack, takeStackInflict,
+  setStackInflictAmount, buildStackInflictNode, fireRestTriggers (in requestEndTurn, tussen
+  restPlayer en endPlayerTurn), settings restEffects/inflictEffects (tandwiel-menu).
+- Pure functies getest met Node (collectRestTriggerSources, resolveInflictTargetIdx,
+  applyInflict): alle tests OK. Nog te doen: het smoke-testlijstje uit stap 0/8 in de
+  browser, Black Cat/Unlucky-effect invullen in de collectie, Architectuur.txt bijwerken.
+
+STATUS: SPEC-RONDE 2026-11-06. De vijf hoofdvragen zijn beantwoord door de
+auteur (sectie 3). Daarnaast staan er zes kleine deelvragen in sectie 4,
+elk met een VOORSTEL: bevestig of corrigeer die voor er code geschreven
+wordt. Het stappenplan in sectie 6 kan daarna uitgevoerd worden.
+
+Zelfde werkwijze als Interpreter-specificatie (Minion-Attack).txt: eerst
+voorstel + expliciete open vragen, dan pas code. Reden voor de behoedzaamheid:
+dit raakt fireDamageTriggerEffects (de enige trigger-interpreter die er nu is,
+en die draait bij elke gecaste kaart en elke discard) en restPlayer/
+requestEndTurn (elke beurt).
+
+Context: Wizards TO DO.txt Thema 2, "inflict"-actie en de triggers
+"on opponent rest" / "on resolve" uit de lijst van nog niet uitgewerkte
+keyword-ideeen. Voorbeeldkaart: Black Cat (Manifestation), gameText:
+"Whenever an opponent rests, inflict an Unlucky Burden on that Wizard."
+(effects[] is daar nog leeg.)
+
+
+1. DOEL & SCOPE
+---------------
+Eén nieuwe actie, "Inflict": een Burden-kaart komt in de discard van een
+speler. Twee manieren om dat te laten gebeuren:
+  a) uit een trigger:   "whenever X happens, inflict Y"   (kind:"trigger")
+  b) uit een resolve:   "inflict Y on target"             (OnResolve)
+Nieuwe triggers: OnOpponentRest (nieuw) en OnRest (bestaat in TRIGGER_LIST,
+wordt nu nergens afgevuurd). Beide enkel voor de Rest die bij END TURN gebeurt.
+
+Bewust buiten scope (voor nu):
+  - Mitigatie/"prevent inflict"-effecten (enkel manueel, zie vraag 6).
+  - Burdens in deck of hand inflicten (altijd de discard, besluit 1).
+  - Een Rest via de losse Rest-knop als trigger (besluit 3: enkel END TURN).
+  - OnEnterPlay, StartOfTurn, EndOfTurn, OnDamaged en de condition-parser.
+  - Het ordenen van gelijktijdige triggers door de speler (besluit 4: ze
+    vuren allemaal, in vaste volgorde, zie 5.5).
+  - Wizards_Mobile.html (zie 7).
+
+
+2. HUIDIGE CODE-SITUATIE (bevindingen, geen vragen)
+----------------------------------------------------
+Alles in arena.html, tenzij anders vermeld.
+- inflictCurse(playerIdx, cardId): zet een verse instantie
+  { instanceId: uid(), cardId, tapped:false, counters: freshCounters() } in
+  p.discard, logt (type "inflict"), saveArena(), renderArenaBoard(). Wordt nu
+  enkel handmatig gebruikt via de Inflict-knop (openInflictChoice: elke kaart
+  met type "Burden" uit de collectie). Dit is dus al het gewenste eindresultaat;
+  de automatisering moet dat enkel vanuit een effect aanroepen, via de stack.
+- Onbeperkte voorraad (besluit 5) is al zo: de instantie wordt gewoon vers
+  aangemaakt vanuit de collectie, er wordt nergens iets uit een pool gehaald.
+- fireDamageTriggerEffects(triggerName, settingKey, card, casterIdx, targetRef)
+  filtert getEffectiveEffects(card) op kind:"trigger", trigger === triggerName
+  EN action === "Damage". Er is dus geen generieke dispatcher. De twee
+  bestaande aanroepers zijn fireOnResolveEffects (vanuit resolveStackTop,
+  na het verplaatsen van de kaart) en fireOnDiscardEffects.
+- Schade loopt via een eigen stack-entry (pushDamageToStack, isDamage:true,
+  priorityWith = het doelwit). Het doelwit klikt "Take X damage"
+  (takeStackDamage: enkel bovenste entry, enkel client van het doelwit, enkel
+  met resolveEnabled; de entry wordt EERST gepopt, dus dubbelklik is veilig).
+  Het bedrag is vooraf manueel aanpasbaar (setStackDamageAmount) = de huidige
+  vorm van mitigatie. Inflict moet dit patroon volgen.
+- Plekken die isDamage-entries apart behandelen en dus ook een isInflict-tak
+  nodig hebben: resolveStackTop (vroege return voor isDamage), de
+  stack-render (buildStackNode -> buildStackDamageNode) en de tweede
+  isDamage-controle in de render-code (de kaartfiche-tak die een preview van
+  de Damage-effecten van een kaart op de stack toont).
+- Rest: requestEndTurn(playerIdx) opent (met turnRedux) de schild-keuze, roept
+  dan restPlayer(...) en daarna endPlayerTurn(...). Zonder turnRedux roept het
+  enkel endPlayerTurn aan, zonder Rest. restPlayer zelf wordt ook door de losse
+  Rest-knop (openRestChoice) gebruikt: een hook IN restPlayer zou dus ook die
+  knop laten triggeren, wat niet de bedoeling is (besluit 3).
+- endPlayerTurn pusht Burdens uit de hand die bij END TURN gediscard worden
+  eerst op de stack (pushBurdenToStack, isDiscardTrigger), en roept daarna
+  startPlayerTurn van de tegenstander aan.
+- Multiplayer: saveArena() stuurt de volledige arena-state naar de tegenstander.
+  Er is geen host/authority; de client die de gebeurtenis uitvoert, past de
+  state aan. END TURN kan enkel de speler aan zet (arena.turn === playerIdx),
+  dus de rest-triggers worden precies één keer afgevuurd, door één client.
+- card-data.js: ACTION_LIST kent "Inflict" niet. TRIGGER_LIST kent
+  "OnOpponentRest" niet. TARGET_LIST kent geen "triggeringPlayer".
+  normalizeEffect heeft geen veld om een Burden aan te wijzen (value is een
+  getal). EFFECT_SUPPORT/effectIssues beschrijven alleen Damage bij OnResolve/
+  OnDiscard.
+
+
+3. BESLIST (2026-11-06, antwoorden van de auteur)
+-------------------------------------------------
+BESLUIT 1 - Bestemming: een geinflicte Burden gaat ALTIJD naar de discard van
+het slachtoffer (zoals inflictCurse nu al doet).
+
+BESLUIT 2 - Via de stack: Inflict komt eerst op de stack en wordt pas bij
+het resolven van die entry toegepast, zodat de tegenstander kan reageren
+(zoals bij schade en zoals Burdens die bij END TURN uit de hand gediscard
+worden, die al automatisch op de stack gaan).
+
+BESLUIT 3 - Rest-triggers: enkel de automatische Rest bij END TURN (resten
+= de beurt beeindigen, beslist in playtest). Er komt een OnRest voor de eigen
+Rest (kaarten van de speler die rust) en een OnOpponentRest voor de Rest van de
+tegenstander (kaarten van de andere speler dan degene die rust).
+
+BESLUIT 4 - Meerdere kaarten die dezelfde trigger hebben, vuren allemaal.
+
+BESLUIT 5 - Onbeperkte voorraad: elke Inflict maakt een verse instantie vanuit
+de collectie.
+
+
+4. DEELVRAGEN (voortvloeiend uit de besluiten): VOORSTEL, TE BEVESTIGEN
+-----------------------------------------------------------------------
+VRAAG 1 - Vuren de effecten van de geinflicte Burden zelf?
+VOORSTEL: nee. Een geinflicte Burden wordt in de discard GEPLAATST, niet
+gecast en niet gediscard. Zijn eigen OnResolve/OnDiscard-effecten (bv. een
+Burden die bij discard schade doet) vuren dus niet bij het inflicten, enkel
+later als hij echt via END TURN gediscard wordt. Anders zou een
+Burden-met-OnDiscard direct na het inflicten schade doen.
+
+VRAAG 2 - Wie klikt de Inflict-entry weg?
+VOORSTEL: net als schade klikt het SLACHTOFFER (de client van targetIdx)
+op "Receive Burden"; de entry krijgt priorityWith = targetIdx. Alleen de
+bovenste entry, alleen met resolveEnabled, entry eerst poppen dan toepassen.
+(Let op: de Burden-uit-de-hand-entry werkt anders: tegenstander krijgt
+priority, eigenaar klikt Resolve. Bij Inflict is het slachtoffer wel degene
+wiens discard verandert, en dat sluit aan bij de damage-entry.)
+
+VRAAG 3 - Rest-triggers zonder turnRedux?
+VOORSTEL: geen. Zonder turnRedux voert END TURN geen Rest uit
+(requestEndTurn roept dan direct endPlayerTurn aan) en dus vuren OnRest/
+OnOpponentRest niet. De trigger hangt aan "de Rest bij END TURN".
+
+VRAAG 4 - Volgorde op de stack bij END TURN?
+VOORSTEL: eerst restPlayer, dan de rest-triggers (stack-entries), dan pas
+endPlayerTurn (dat de Burdens uit de hand op de stack zet en startPlayerTurn
+van de tegenstander aanroept). De stack is last-in-first-out: de Burdens uit
+de hand liggen dus bovenaan en worden eerst afgehandeld. Er komt geen
+keuze voor de speler (zie besluit 4).
+
+VRAAG 5 - Nieuw target "triggeringPlayer" of bestaand target hergebruiken?
+VOORSTEL: nieuw target "triggeringPlayer" toevoegen aan TARGET_LIST
+("de speler die de trigger veroorzaakte"). Bij OnOpponentRest is dat de
+rustende tegenstander, bij OnRest de controller zelf. In 1-tegen-1 is dat
+gelijk aan "opponent"/"controller", maar leest als de kaarttekst ("that
+Wizard") en blijft kloppen als er ooit andere triggers komen. Buiten de
+rest-triggers wordt het met een logregel overgeslagen.
+
+VRAAG 6 - Aantal aanpasbaar op de stack?
+VOORSTEL: ja, zoals setStackDamageAmount: het slachtoffer kan het aantal
+Burdens op de entry vóór het klikken verlagen (0 = niets gebeurt). Dat is de
+huidige manuele mitigatie voor schade en vermijdt dat "prevent"-effecten nu
+al nodig zijn.
+
+Kleine aanname zonder aparte vraag: kaarten die EXHAUSTED zijn, vuren hun
+rest-triggers ook (exhausten schakelt triggers niet uit, zoals in het schade-
+systeem van de arena). Enkel kaarten in een in-play zone (inPlayBody/Mind/Soul)
+tellen mee, niet kaarten in hand/discard/deck.
+
+
+5. ONTWERP (op basis van de besluiten en de voorstellen hierboven)
+------------------------------------------------------------------
+5.1 Datamodel (shared/card-data.js)
+- ACTION_LIST += "Inflict".
+- TRIGGER_LIST += "OnOpponentRest". (OnRest bestaat al.)
+- TARGET_LIST += "triggeringPlayer" (vraag 5).
+- normalizeEffect: nieuw veld burdenId (string, id van een kaart uit de
+  collectie, "" als niet gekozen). Bewust een id en geen naam, want namen
+  kunnen veranderen of dubbel voorkomen. `value` betekent bij Inflict het
+  AANTAL exemplaren (cardbuilder zet bij het kiezen van Inflict een default
+  van 1); value 0 = niets doen, zoals bij Damage.
+  burdenId wordt enkel bewaard bij action "Inflict", anders "", zoals
+  damageType al enkel bij Damage wordt bewaard.
+- EFFECT_SUPPORT: triggers uitbreiden met OnResolve:[Damage,Inflict],
+  OnDiscard:[Damage,Inflict], OnRest:[Inflict], OnOpponentRest:[Inflict].
+  Inflict-targets per trigger: OnResolve: chosen, opponent, controller,
+  ownActiveWizard, opponentActiveWizard; OnDiscard: controller, opponent,
+  ownActiveWizard, opponentActiveWizard; OnRest/OnOpponentRest:
+  triggeringPlayer, controller, opponent.
+- effectIssues: nieuwe waarschuwingen voor Inflict: geen burdenId gekozen,
+  burdenId verwijst naar een kaart die niet (meer) bestaat of geen Burden is,
+  value is 0, target niet ondersteund bij deze trigger.
+  Let op: effectIssues kent de collectie niet; de collectie-check hoort dus in
+  cardbuilder.html (waar de collectie bekend is), niet in card-data.js.
+- isActionImplemented/isTriggerImplemented blijven werken zonder aanpassing
+  zodra EFFECT_SUPPORT klopt.
+- Voorbeelden (zoals ze in effects[] moeten komen):
+  Black Cat:
+    { kind:"trigger", trigger:"OnOpponentRest", action:"Inflict",
+      target:"triggeringPlayer", burdenId:"<id van Unlucky>", value:1 }
+  Een Incantation "Inflict a Distraction on target":
+    { kind:"trigger", trigger:"OnResolve", action:"Inflict",
+      target:"chosen", burdenId:"<id van Distraction>", value:1 }
+
+5.2 Cardbuilder (cardbuilder.html)
+- Actie-dropdown toont Inflict. Bij Inflict: een Burden-select (alle kaarten
+  van type "Burden" uit de collectie, op naam) en het getalveld gelabeld als
+  "Aantal". damageType-veld verborgen (zoals bij niet-Damage).
+- De ⚠-markeringen lopen via effectIssues/EFFECT_SUPPORT.
+
+5.3 Pure functies (shared/game-mechanics.js), zelfde stijl als het bestand
+Ze krijgen alle state expliciet mee en lezen/schrijven geen globale arena:
+- collectRestTriggerSources(players, restingIdx, triggerName): geeft een lijst
+  { card-instantie, ownerIdx } terug van alle kaarten in de in-play zones van
+  de juiste speler: OnRest -> de speler restingIdx, OnOpponentRest -> de andere
+  speler. Volgorde: Body, Mind, Soul, daarna arrayvolgorde (vaste volgorde,
+  geen keuze, besluit 4).
+- resolveInflictTargetIdx(effect, ctx): geeft de speler-index van het
+  slachtoffer of null (met reden) terug. ctx = { casterIdx, triggeringIdx,
+  targetRef }. Regels: chosen -> targetRef.playerIdx (kaart of zone, van wie
+  dan ook); opponent/opponentActiveWizard -> de andere speler dan casterIdx;
+  controller/ownActiveWizard -> casterIdx; triggeringPlayer -> triggeringIdx.
+- applyInflict(player, burdenCardId, count): pusht `count` verse instanties
+  { instanceId: uid(), cardId, tapped:false, counters: freshCounters() } in
+  player.discard en geeft ze terug. inflictCurse wordt hiermee herschreven,
+  zodat er één plek is die weet hoe een Burden in de discard komt.
+
+5.4 Stack-entry (arena.html)
+  { instanceId, isInflict:true, sourceCardId, sourceLabel, casterIdx,
+    targetIdx, burdenCardId, burdenLabel, amount, baseAmount,
+    priorityWith: targetIdx }
+- pushInflictToStack(opts): analoog aan pushDamageToStack. Logt
+  (type "inflict-stack").
+- takeStackInflict(entryId): analoog aan takeStackDamage (zie vraag 2), roept
+  applyInflict aan, logt in dezelfde stijl als de bestaande inflict-logregel
+  (type "inflict"), saveArena() en renderArenaBoard().
+- setStackInflictAmount(entryId, value): zoals setStackDamageAmount (vraag 6).
+- Render: buildStackInflictNode(ci, isTop), analoog aan buildStackDamageNode:
+  toont de bronkaart, de Burden-naam, het aantal, en de knop "Receive Burden"
+  bij de bovenste entry voor de juiste client.
+- resolveStackTop: vroege return ook voor isInflict, zoals voor isDamage.
+
+5.5 Dispatcher (arena.html)
+- fireDamageTriggerEffects wordt fireTriggerEffects(triggerName, settingKey,
+  card, casterIdx, ctx) met een tabel van action-handlers:
+  TRIGGER_ACTION_HANDLERS = { Damage: handleDamage, Inflict: handleInflict }.
+  handleDamage is de bestaande body, ONGEWIJZIGD verplaatst (zelfde
+  controles, zelfde logregels, zelfde gedrag). ctx = { targetRef,
+  triggeringIdx }. De filter wordt: kind:"trigger", trigger === triggerName,
+  en action heeft een handler. fireOnResolveEffects en fireOnDiscardEffects
+  blijven als dunne wrappers bestaan, zodat hun aanroepers niet wijzigen.
+- Settings (ensureArenaSettings, standaardlijst): twee nieuwe vinkjes, in
+  het tandwiel-menu naast resolveEffects/discardEffects, default aan:
+    restEffects:    rest-triggers (OnRest/OnOpponentRest) afvuren
+    inflictEffects: de actie Inflict uitvoeren (bij elke trigger)
+  Een uitgeschakelde setting laat het effect stil over, zoals de bestaande
+  settings dat doen.
+- Rest-hook: fireRestTriggers(restingIdx) wordt aangeroepen in
+  requestEndTurn, tussen restPlayer(...) en endPlayerTurn(...), en dus NIET in
+  restPlayer zelf (losse Rest-knop triggert niet, besluit 3) en niet zonder
+  turnRedux (vraag 3). Het roept collectRestTriggerSources aan voor OnRest en
+  OnOpponentRest, en vuurt voor elke bron de eigen effecten af met
+  casterIdx = eigenaar van de bron en ctx.triggeringIdx = restingIdx.
+- Wie voert uit: alleen de client die END TURN uitvoert (de speler aan zet,
+  of de enige client in solo-modus). Die maakt ook stack-entries voor kaarten
+  van de andere speler; saveArena() synchroniseert. Geen dubbele afvuring
+  mogelijk, want END TURN is enkel voor de speler aan zet.
+
+5.6 Logging
+- Elke overgeslagen Inflict logt een duidelijke reden (type "inflict-skip"):
+  geen Burden gekozen, Burden bestaat niet meer, target niet ondersteund,
+  geen doelwit gekozen bij het casten. Geen stille mislukkingen, zoals bij
+  Damage.
+
+
+6. VOORGESTELD STAPPENPLAN (uit te voeren NA bevestiging van sectie 4)
+----------------------------------------------------------------------
+Stap 0 - Vangnet
+Vast smoke-testlijstje van bestaande flows die niet stuk mogen: een Incantation
+met OnResolve-schade casten (alle target-soorten), Burden uit de hand bij END
+TURN (naar de stack, OnDiscard), Minion-Attack, de handmatige Inflict-knop,
+de losse Rest-knop, END TURN met en zonder turnRedux, schade nemen.
+
+Stap 1 - Datamodel (card-data.js): ACTION_LIST/TRIGGER_LIST/TARGET_LIST,
+normalizeEffect (burdenId), EFFECT_SUPPORT, effectIssues. Laag risico, zonder
+gedrag: bestaande kaarten blijven geldig (burdenId default "").
+
+Stap 2 - Pure functies in game-mechanics.js (5.3) + losse Node-tests,
+zelfde patroon als de eerdere tests (Gremlin/Mosquito).
+
+Stap 3 - Dispatcher-refactor (5.5): fireDamageTriggerEffects naar
+fireTriggerEffects met handler-tabel, handleDamage ONGEWIJZIGD. Eerst enkel
+deze stap testen met het Stap 0-lijstje voor er iets nieuws op voortbouwt.
+Dit is de enige stap die bestaand gedrag aanraakt.
+
+Stap 4 - Inflict-stack-entry (5.4): push/take/setAmount, render,
+resolveStackTop-guard, inflictCurse herschreven via applyInflict.
+
+Stap 5 - handleInflict (OnResolve/OnDiscard): "inflict y on target" werkt.
+Dit is Fase A, los te testen zonder de rest-hook.
+
+Stap 6 - Rest-hook (5.5): fireRestTriggers in requestEndTurn,
+OnRest/OnOpponentRest, restEffects- en inflictEffects-vinkjes.
+
+Stap 7 - Cardbuilder-UI (5.2).
+
+Stap 8 - Testen
+- Node: collectRestTriggerSources, resolveInflictTargetIdx, applyInflict
+  (inclusief: kaart zonder effects, meerdere bronnen, lege in-play zones,
+  verwijderde Burden-kaart).
+- Browser, solo: Black Cat + END TURN (Burden in discard van de rustende
+  speler, via de stack), twee Black Cats (twee entries), OnRest op eigen
+  kaart, "Inflict on target" via een Incantation, aantal verlagen naar 0,
+  vinkjes uit, losse Rest-knop (geen trigger), END TURN zonder turnRedux
+  (geen trigger), Burdens uit de hand bij dezelfde END TURN (volgorde, vraag 4).
+- Multiplayer (2 toestellen/tabbladen): enkel de rustende speler ziet de
+  Receive Burden-knop, de stand is bij beide clients identiek, de entry wordt
+  niet dubbel aangemaakt.
+
+Stap 9 - Documentatie: Architectuur.txt (nieuwe actie/triggers/settings),
+TO DO.txt (Inflict, OnOpponentRest en "on resolve"-triggers afvinken waar van
+toepassing), EFFECT_SUPPORT-commentaar, en deze spec bijwerken met datum +
+resultaat.
+
+
+7. BEKENDE GEVOLGEN / AANDACHTSPUNTEN
+-------------------------------------
+- Wizards_Mobile.html heeft een eigen effecten-editor (TO DO Thema 3). Tot
+  de card-editor.js-refactor krijgt die een apart handje: de nieuwe actie,
+  het Burden-veld en de nieuwe trigger moeten daar ook in, anders kan een
+  kaart op mobiel Inflict-effecten niet aanmaken (bestaande worden wel
+  bewaard, via het "onbekende velden blijven bewaard"-mechanisme). Als
+  de mobiele shell wijzigt: CACHE_NAME in sw-mobile.js ophogen.
+- Black Cat staat in de databasekopie in "Elders gehost" nog met lege
+  effects[]. De Burden "Unlucky" moet in de collectie bestaan (naam en id
+  controleren) voor het effect ingevuld kan worden.
+- GitWiz/GitPub blijft ongewijzigd tot de playtest-groep weer samenkomt
+  (TO DO Thema 1).
+- Dit spec-document staat in development en wordt, net als
+  Interpreter-specificatie (Minion-Attack).txt, niet mee gepubliceerd.

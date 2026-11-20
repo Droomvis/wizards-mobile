@@ -961,7 +961,7 @@
     // niets (dat gebeurt enkel nog door acties te spenderen, zie
     // tickSlumberOnce); Spite zakt bij rest naar de Soul-stat i.p.v. naar 0
     // (en blijft behouden als ze al <= Soul-stat is). UIT = het oude gedrag.
-    return { autoPayCost: true, enforceCastLegality: true, resolveEnabled: true, hideOpponentHand: true, freeActionSpending: true, turnRedux: true, resolveEffects: true, burdenDiscardStack: true, discardEffects: true };
+    return { autoPayCost: true, enforceCastLegality: true, resolveEnabled: true, hideOpponentHand: true, freeActionSpending: true, turnRedux: true, resolveEffects: true, burdenDiscardStack: true, discardEffects: true, restEffects: true, inflictEffects: true };
   }
 
   function ensureArenaSettings(){
@@ -1910,6 +1910,7 @@
   function resolveStackTop(playerIdx){
     if (!arena || !arena.stack || arena.stack.length === 0) return;
     const entry = arena.stack[arena.stack.length - 1];
+    if (entry.isInflict) return; // Inflict-entries lopen via takeStackInflict(), niet via Resolve
     if (entry.isDamage) return; // damage-entries lopen via takeStackDamage(), niet via Resolve
     if (entry.priorityWith !== playerIdx) return;
     const card = findCard(entry.cardId);
@@ -1992,6 +1993,7 @@
   //  - Al het andere wordt overgeslagen met een logregel (geen stille mislukking).
   function fireOnResolveEffects(card, casterIdx, targetRef){
     fireDamageTriggerEffects("OnResolve", "resolveEffects", card, casterIdx, targetRef);
+    fireInflictTriggerEffects("OnResolve", "resolveEffects", card, casterIdx, { targetRef: targetRef });
   }
 
   // OnDiscard (2026-10-10): zelfde smalle interpreter, enkel action:"Damage". Afgevuurd
@@ -1999,6 +2001,7 @@
   // hier geen doelwit en wordt dus netjes overgeslagen met een logregel.
   function fireOnDiscardEffects(card, ownerIdx){
     fireDamageTriggerEffects("OnDiscard", "discardEffects", card, ownerIdx, null);
+    fireInflictTriggerEffects("OnDiscard", "discardEffects", card, ownerIdx, {});
   }
 
   function fireDamageTriggerEffects(triggerName, settingKey, card, casterIdx, targetRef){
@@ -2040,6 +2043,101 @@
       if (!DAMAGE_TYPE_LABELS[eff.damageType]) return skip("geen schadetype ingesteld op het effect");
       pushDamageToStack(Object.assign({}, base, { targetIdx: targetIdx, damageType: eff.damageType, amount: amount }));
     });
+  }
+
+  // ---------- Inflict op de stack (2026-11-07) ----------
+  // Zie Inflict-specificatie (Burden-infliction).txt. Een Inflict-effect zet een aparte
+  // stack-entry (geen kaart) op de stack; het SLACHTOFFER krijgt priority en klikt
+  // "Receive Burden" (zoals bij schade). Pas dan komen er verse Burden-instanties in zijn
+  // discard (applyInflict, game-mechanics.js). Een geinflicte Burden wordt geplaatst,
+  // niet gecast of gediscard: haar eigen OnResolve/OnDiscard-effecten vuren niet.
+  // Entry: { instanceId, isInflict:true, sourceCardId, sourceLabel, casterIdx, targetIdx,
+  //          burdenCardId, amount, baseAmount, priorityWith: targetIdx }
+  // Elk Inflict-effect = een eigen entry, dus een kaart met Damage- EN Inflict-effect geeft
+  // het slachtoffer twee aparte acties.
+  // Vuurt enkel als de instelling van de trigger (settingKey) EN inflictEffects aanstaan.
+  // ctx: { targetRef, triggeringIdx } (zie resolveInflictTargetIdx).
+  function fireInflictTriggerEffects(triggerName, settingKey, card, casterIdx, ctx){
+    if (!arena || !card || casterIdx === undefined || casterIdx === null) return;
+    ensureArenaSettings();
+    if (!arena.settings[settingKey] || !arena.settings.inflictEffects) return;
+    ctx = ctx || {};
+    const label = card.name || "(naamloos)";
+    getEffectiveEffects(card)
+      .filter(e => e.kind === "trigger" && e.trigger === triggerName && e.action === "Inflict")
+      .forEach(eff => {
+        const amount = Math.max(0, parseInt(eff.value, 10) || 0);
+        if (amount <= 0) return;
+        const skip = (why) => logAction(`⚠️ "${label}": ${triggerName}-inflict niet toegepast — ${why}`, "inflict-skip");
+        if (!eff.burdenId) return skip("geen Burden gekozen op het effect");
+        const burden = findCard(eff.burdenId);
+        if (!burden || burden.type !== "Burden") return skip("de gekozen Burden bestaat niet (meer) in de collectie");
+        const res = resolveInflictTargetIdx(eff, { casterIdx: casterIdx, triggeringIdx: ctx.triggeringIdx, targetRef: ctx.targetRef });
+        if (res.idx === null || !arena.players[res.idx]) return skip(res.reason || "geen doelwit");
+        pushInflictToStack({ sourceCardId: card.id, sourceLabel: label, casterIdx: casterIdx, targetIdx: res.idx, burdenCardId: burden.id, amount: amount });
+      });
+  }
+
+  function pushInflictToStack(opts){
+    if (!arena || !Array.isArray(arena.stack)) return;
+    const amt = Math.max(0, parseInt(opts.amount, 10) || 0);
+    const burden = findCard(opts.burdenCardId);
+    const burdenName = burden ? (burden.name || "(naamloos)") : "(verwijderde kaart)";
+    const target = arena.players[opts.targetIdx];
+    arena.stack.push({
+      instanceId: uid(),
+      isInflict: true,
+      sourceCardId: opts.sourceCardId || null,
+      sourceLabel: opts.sourceLabel || "",
+      casterIdx: opts.casterIdx,
+      targetIdx: opts.targetIdx,
+      burdenCardId: opts.burdenCardId,
+      amount: amt,
+      baseAmount: amt,
+      // Het slachtoffer krijgt priority: die mag eerst reageren of de Burden(s) nemen.
+      priorityWith: opts.targetIdx
+    });
+    logAction(`☠️ ${opts.sourceLabel ? `"${opts.sourceLabel}"` : "?"} — ${amt}× Burden "${burdenName}" op de stack → ${target ? target.name : "?"}`, "inflict-stack");
+    saveArena();
+    renderArenaBoard();
+  }
+
+  function setStackInflictAmount(entryId, value){
+    if (!arena || !Array.isArray(arena.stack)) return;
+    const entry = arena.stack.find(e => e && e.isInflict && e.instanceId === entryId);
+    if (!entry) return;
+    entry.amount = Math.max(0, parseInt(value, 10) || 0);
+    saveArena();
+    renderArenaBoard();
+  }
+
+  // Klik op "Receive X Burden(s)": enkel op de bovenste stack-entry, enkel door de client
+  // van het slachtoffer (solo-modus: altijd), enkel als Resolve aanstaat. De entry wordt
+  // eerst gepopt, dus een dubbele klik kan de Burden niet twee keer toepassen.
+  function takeStackInflict(entryId){
+    if (!arena || !Array.isArray(arena.stack) || arena.stack.length === 0) return;
+    const entry = arena.stack[arena.stack.length - 1];
+    if (!entry || !entry.isInflict || entry.instanceId !== entryId) return;
+    if (arena.settings && arena.settings.resolveEnabled === false) return;
+    const owned = clientOwnedPlayerIdx();
+    if (owned !== null && owned !== entry.targetIdx) return;
+
+    arena.stack.pop();
+    const target = arena.players[entry.targetIdx];
+    if (!target){ saveArena(); renderArenaBoard(); return; }
+
+    const amount = Math.max(0, parseInt(entry.amount, 10) || 0);
+    const created = applyInflict(target, entry.burdenCardId, amount);
+    const burden = findCard(entry.burdenCardId);
+    const burdenName = burden ? (burden.name || "(naamloos)") : "(verwijderde kaart)";
+    const adjusted = (entry.baseAmount !== undefined && entry.baseAmount !== amount) ? ` (oorspronkelijk ${entry.baseAmount})` : "";
+    const sourceTxt = entry.sourceLabel ? ` van "${entry.sourceLabel}"` : "";
+    let text;
+    if (created.length === 0) text = `☠️ ${target.name} krijgt geen Burden "${burdenName}"${adjusted}${sourceTxt}`;
+    else text = `☠️ ${target.name} krijgt ${created.length}× Burden "${burdenName}" in de discard${adjusted}${sourceTxt}`;
+    logAction(text, "inflict");
+    saveArena();
+    renderArenaBoard();
   }
 
   function setStackDamageAmount(entryId, value){
@@ -2377,13 +2475,33 @@
     openArenaChoice("⏭️ Einde beurt — Rest: kies één schildje om aan te vullen", options, (shieldKey) => {
       if (!arena || arena.turn !== playerIdx) return;
       restPlayer(playerIdx, shieldKey);
+      // Rest-triggers (stack-entries) vóór endPlayerTurn: de Burdens uit de hand komen daar
+      // bovenop te liggen en worden dus eerst afgehandeld (Inflict-spec vraag 4).
+      fireRestTriggers(playerIdx);
       endPlayerTurn(playerIdx);
+    });
+  }
+
+  // Rest-triggers (2026-11-07): OnRest (eigen kaarten van wie rust) en OnOpponentRest
+  // (kaarten van de andere speler) vuren enkel bij de Rest van END TURN (turnRedux),
+  // niet bij de losse Rest-knop. Elke bron-kaart in een in-play zone vuurt, in vaste
+  // volgorde; exhausted kaarten tellen mee. Draait op de client die END TURN uitvoert.
+  function fireRestTriggers(restingIdx){
+    if (!arena) return;
+    ensureArenaSettings();
+    if (!arena.settings.restEffects) return;
+    ["OnRest", "OnOpponentRest"].forEach(triggerName => {
+      collectRestTriggerSources(arena.players, restingIdx, triggerName).forEach(src => {
+        const card = findCard(src.ci.cardId);
+        if (!card) return;
+        fireInflictTriggerEffects(triggerName, "restEffects", card, src.ownerIdx, { triggeringIdx: restingIdx });
+      });
     });
   }
 
   function inflictCurse(playerIdx, cardId){
     const p = arena.players[playerIdx];
-    p.discard.push({ instanceId: uid(), cardId, tapped: false, counters: freshCounters() });
+    applyInflict(p, cardId, 1);
     const card = findCard(cardId);
     logAction(`☠️ ${p.name} krijgt Burden "${card ? (card.name || "(naamloos)") : "(verwijderde kaart)"}" in de discard`, "inflict");
     saveArena();
@@ -2735,6 +2853,8 @@
         <label><input type="checkbox" id="setting-resolveeffects" ${s.resolveEffects ? "checked" : ""}> Effecten bij resolve — OnResolve-schade van een gecaste kaart automatisch afvuren (uitvinken = enkel de handmatige "Schade op de stack"-knop)</label>
         <label><input type="checkbox" id="setting-burdenstack" ${s.burdenDiscardStack ? "checked" : ""}> Burden-discard — een Burden die bij END TURN gediscard wordt gaat eerst op de stack (priority-wissel, geen target) i.p.v. rechtstreeks naar de discard</label>
         <label><input type="checkbox" id="setting-discardeffects" ${s.discardEffects ? "checked" : ""}> Effecten bij discard — OnDiscard-schade automatisch afvuren (enkel bij END TURN-discard)</label>
+        <label><input type="checkbox" id="setting-resteffects" ${s.restEffects ? "checked" : ""}> Rest-triggers — OnRest/OnOpponentRest-effecten afvuren bij de Rest van END TURN</label>
+        <label><input type="checkbox" id="setting-inflicteffects" ${s.inflictEffects ? "checked" : ""}> Inflict-effecten — de actie Inflict (Burden in de discard van het slachtoffer, via de stack) automatisch uitvoeren</label>
         <div class="settings-hint">Uit = die controle/knop staat helemaal stil — handig om heel gericht één ding tegelijk te testen. De face-down instelling geldt enkel in netwerkmodus (verbonden met een tegenstander); in solo-test zie je sowieso altijd beide handen.</div>
       </div>
     `;
@@ -2959,6 +3079,18 @@
           saveArena();
           renderArenaBoard();
         });
+        settingsPopoverEl.querySelector("#setting-resteffects").addEventListener("change", (e) => {
+          ensureArenaSettings();
+          arena.settings.restEffects = e.target.checked;
+          saveArena();
+          renderArenaBoard();
+        });
+        settingsPopoverEl.querySelector("#setting-inflicteffects").addEventListener("change", (e) => {
+          ensureArenaSettings();
+          arena.settings.inflictEffects = e.target.checked;
+          saveArena();
+          renderArenaBoard();
+        });
         settingsPopoverEl.querySelector("#setting-hideopphand").addEventListener("change", (e) => {
           ensureArenaSettings();
           arena.settings.hideOpponentHand = e.target.checked;
@@ -3089,6 +3221,64 @@
     return wrap;
   }
 
+  // Inflict-entry op de stack (geen kaart): kop met de Burden, bron → slachtoffer, aantal-stepper
+  // en de "Receive X Burden(s)"-knop. Het aantal mag door elke client aangepast worden (manuele
+  // mitigatie), de knop enkel door de client van het slachtoffer.
+  function buildStackInflictNode(entry, isTop){
+    const wrap = document.createElement("div");
+    wrap.className = "arena-stack-card arena-stack-damage arena-stack-inflict";
+    wrap.dataset.instanceId = entry.instanceId;
+
+    const burden = findCard(entry.burdenCardId);
+    const burdenName = burden ? (burden.name || "(naamloos)") : "(verwijderde kaart)";
+    const target = arena.players[entry.targetIdx];
+    const caster = arena.players[entry.casterIdx];
+    const targetName = target ? target.name : "?";
+    const sourceTxt = (entry.sourceLabel || (caster ? caster.name : "?")) + " → " + targetName;
+    const amount = Math.max(0, parseInt(entry.amount, 10) || 0);
+
+    const box = document.createElement("div");
+    box.className = "stack-damage-box";
+    box.style.setProperty("--dmg-color", "#9b59b6");
+    box.innerHTML = `
+      <div class="stack-damage-head">☠️ Inflict: ${escapeHtml(burdenName)}</div>
+      <div class="stack-damage-source" title="${escapeHtml(sourceTxt)}">${escapeHtml(sourceTxt)}</div>
+      <div class="counter-box stack-damage-x" title="Pas het aantal aan om prevent/mitigatie manueel te verrekenen">
+        <span class="c-label">×</span>
+        <button type="button" class="c-minus">−</button>
+        <input type="number" class="c-value" value="${amount}" min="0">
+        <button type="button" class="c-plus">+</button>
+      </div>
+      ${(entry.baseAmount !== undefined && entry.baseAmount !== amount) ? `<div class="stack-damage-orig">oorspronkelijk ${escapeHtml(String(entry.baseAmount))}</div>` : ""}
+    `;
+    box.querySelector(".c-minus").addEventListener("click", () => setStackInflictAmount(entry.instanceId, amount - 1));
+    box.querySelector(".c-plus").addEventListener("click", () => setStackInflictAmount(entry.instanceId, amount + 1));
+    box.querySelector(".c-value").addEventListener("change", (e) => setStackInflictAmount(entry.instanceId, e.target.value));
+
+    const resolveOn = !arena.settings || arena.settings.resolveEnabled !== false;
+    const owned = clientOwnedPlayerIdx();
+    const isTarget = owned === null || owned === entry.targetIdx;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn primary stack-resolve-btn stack-damage-take-btn";
+    btn.disabled = !isTop || !resolveOn || !isTarget;
+    btn.textContent = isTarget ? `Receive ${amount} Burden${amount === 1 ? "" : "s"}` : `Wacht op ${targetName}`;
+    btn.title = !resolveOn ? "Resolve-knoppen staan uit (tandwiel-menu)"
+      : !isTop ? "Wacht op de kaart(en) erboven"
+      : !isTarget ? `Enkel ${targetName} kan deze Burden(s) nemen`
+      : `Zet ${amount}× "${burdenName}" in de discard`;
+    btn.addEventListener("click", () => takeStackInflict(entry.instanceId));
+    box.appendChild(btn);
+
+    const hint = document.createElement("div");
+    hint.className = "stack-damage-hint";
+    hint.textContent = `Komt in de discard van ${targetName}`;
+    box.appendChild(hint);
+
+    wrap.appendChild(box);
+    return wrap;
+  }
+
   // Bouwt de weergave van één kaart op de stack: de kaartfiche, een
   // target-label ("pijl") en een Resolve-knop. Enkel de bovenste kaart
   // (isTop) is "live": de Resolve-knop reageert dan op wie priority heeft.
@@ -3098,6 +3288,7 @@
   // eigen weergave, zie buildStackDamageNode hierboven.
   function buildStackCardNode(ci, isTop){
     if (ci.isDamage) return buildStackDamageNode(ci, isTop);
+    if (ci.isInflict) return buildStackInflictNode(ci, isTop);
     const wrap = document.createElement("div");
     wrap.className = "arena-stack-card";
     wrap.dataset.instanceId = ci.instanceId;
@@ -3289,6 +3480,7 @@
       seen.add(key);
       out.push(t);
     };
+    if (ci.isInflict) return out;
     if (ci.isDamage){
       const zone = ARROW_ZONE_BY_TYPE[ci.damageType];
       if (zone && arena.players[ci.targetIdx]) add({ kind: "zone", playerIdx: ci.targetIdx, zone: zone, type: ci.damageType });
