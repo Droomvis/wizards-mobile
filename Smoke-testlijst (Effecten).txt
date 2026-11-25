@@ -1,0 +1,504 @@
+Smoke-testlijst voor het Effecten-traject (Effecten-specificatie.txt, Stap 0)
+=======================================================================
+Doel: na ELKE stap die arena.html aanraakt (Stap 3, 4, 6, 7, 8, ...) dit lijstje
+in de browser doorlopen, in solo-modus. Het zijn de bestaande flows die niet
+stuk mogen gaan. Vink af, noteer de datum en bij falen de stap die het brak.
+Nieuwe functies hebben hun eigen tests (zie spec sectie 8).
+
+Voorbereiding: een testdeck met minstens
+  - een gewone Manifestation (zonder Minion-subtype)
+  - een Minion (Manifestation, subtype Minion) met Slumber 1 of hoger
+  - een Incantation met OnResolve-Damage (probeer target: opponent, chosen)
+  - een Burden (voor END TURN uit de hand)
+  - Black Cat (OnOpponentRest -> Inflict Unlucky), mits Unlucky bestaat
+  - een kaart met een Destiny-type (voor de pre-game plaatsing)
+
+A. Spelstart
+[v] Beide spelers op Ready zetten: de beginspeler trekt automatisch 5 kaarten
+[v] Destinies staan bij de start in de hand en gaan zonder stack naar een zone
+
+B. Casten en resolven
+[v] Manifestation naar een In Play-zone slepen: ze komt op de stack, kost wordt
+    afgetrokken (Actions/Spite), tegenstander krijgt +1 Spite
+[v] Resolve door de tegenstander (priority gaat terug), dan door de caster: de
+    kaart ligt in de gekozen zone
+[v] Incantation met OnResolve-Damage: damage-entry op de stack, "Take X damage"
+    door het doelwit banisht het juiste aantal kaarten (Body/Mind/Soul)
+[v] Cast met onvoldoende Actions/Spite wordt geweigerd (melding)
+[v] Cast buiten je beurt wordt geweigerd
+
+C. Beurt en Rest
+[v] END TURN met turnRedux aan: schildkeuze, Rest (acties = Body-stat), hand-
+    limiet (eerste Mind-stat kaarten blijven), tegenstander trekt 5
+[v] END TURN met turnRedux uit: geen Rest, wel hand-limiet en beurtwissel
+[v] Burden in de hand bij END TURN: gaat eerst op de stack, OnDiscard vuurt
+[ ] Losse Rest-knop werkt en vuurt GEEN rest-triggers
+[v] Black Cat: OnOpponentRest bij END TURN van de tegenstander -> Inflict op de
+    stack, "Receive Burden" door de rustende speler
+[v] Directe effecten bij END TURN (Stap 3-correctie, 2026-11-21): kaart in play met
+    OnRest -> Draw 1 (target controller). Zorg voor een hand groter dan de Mind-
+    stat en klik END TURN: eerst de discard, DAN de getrokken kaart; de nieuwe
+    kaart staat in de hand tijdens de beurt van de tegenstander (niet gediscard)
+[v] Idem met een Black Cat-achtige kaart die de rustende speler laat trekken
+    (OnOpponentRest, Draw, target triggeringPlayer): de rustende speler houdt
+    de kaart
+[v] Volgorde in het log bij END TURN: rust -> (Inflict op de stack) -> discard ->
+    Draw. Een OnRest-Inflict ligt nog steeds op de stack onder de Burdens uit de hand
+[ ] END TURN zonder turnRedux: geen rest-triggers (ook geen Draw)
+
+D. Kaarten in play
+[v] Exhaust/Ready via de zoom-overlay: Slumber-teller (wit) klopt
+[v] Een klik op Actions verbruikt een actie, tikt Slumber af, readiet bij 0
+[v] Minion-Attack: Exhaust + damage-entry op de stack met de zone-stat
+[v] Handmatige zwarte teller: Vulnerable/Confused/Forlorn-badge verschijnt,
+    volgende schade doodt de kaart (naar discard)
+[v] Handmatig slepen tussen zones, hand herschikken, deck-bovenop/onderaan
+
+E. Knoppen en instellingen
+[v] Inflict-knop: kies een Burden, die komt in de discard
+[v] Trekken door op het deck te klikken, schudden, discard meng-terug
+[v] Elke checkbox in het tandwiel-menu uit en weer aan: het bijhorende gedrag
+    staat stil resp. werkt weer
+[v] Pijlen op de stack tonen het juiste doelwit
+
+G. Beurt-triggers en OnPlayed (Stap 4, 2026-11-21)
+[v] StartOfTurn: kaart in play met StartOfTurn -> GainSpite 1 (of Draw 1). Bij het
+    begin van jouw beurt: eerst 5 getrokken, DAN het effect (log: turn-start, daarna
+    het effect); ook bij de allereerste beurt na de Ready-check
+[v] EndOfTurn: kaart in play met EndOfTurn -> Draw 1. Hand groter dan de Mind-stat,
+    END TURN: eerst de discard, DAN de kaart; ze staat in je hand tijdens de beurt
+    van de tegenstander
+[ ] EndOfTurn ook zonder turnRedux (instelling uit): effect vuurt, rest-triggers niet
+[ ] OnPlayed: Manifestation/Incantation met OnPlayed -> Draw 1: het effect vuurt
+    bij het CASTEN (kaart ligt dan nog op de stack), niet pas bij Resolve
+[v] Een Burden die bij END TURN op de stack komt vuurt GEEN OnPlayed
+[v] Destiny voor beurt 1 in een zone slepen vuurt GEEN OnPlayed
+[v] Een exhausted kaart vuurt Start-/EndOfTurn wel; kaarten van de TEGENSTANDER
+    vuren niet bij jouw beurtstart/-einde
+[v] Vinkjes "Beurt-triggers" en "OnPlayed" uit: die effecten staan stil
+[ ] triggeringPlayer bij EndOfTurn: geen effect, logregel "niet toegepast"
+[v] Builder: Draw/GainAction/GainSpite bij OnPlayed/StartOfTurn/EndOfTurn zonder ⚠;
+    Damage/Inflict daar nog wel met ⚠
+
+H. Stap 6: Attack met kosten (payCosts)
+[v] Gewone Minion (enkel Exhaust): Attack werkt zoals voorheen (Exhaust, Slumber,
+    damage-entry op de stack, logregel met "⤵ Exhaust")
+[ ] Kaart met Attack-cost 1 Spite (+ Exhaust) en genoeg Spite: Spite daalt met 1,
+    kaart exhausted, logregel toont "1🔥, ⤵ Exhaust"
+[ ] Zelfde kaart met 0 Spite: knop uitgeschakeld met reden (tooltip + rode tekst);
+    forceren via melding: "Onvoldoende Spite", NIETS veranderd (kaart ready, geen stack)
+[ ] Attack-cost 1 Action: Actions daalt met 1, Slumber van exhausted kaarten tikt af
+    (logregel "Slumber: x getikt, y ready"); bronkaart blijft exhausted (Exhaust is laatst)
+[ ] Attack-cost SelfVulnerable op een Manifestation: zwarte teller = stat van de zone,
+    kaart Vulnerable/Confused/Forlorn; tweede Attack geweigerd ("al Vulnerable")
+[ ] Combinatie Spite + Action + Exhaust: alles in een keer betaald; faalt een deel,
+    dan wordt niets betaald
+[ ] Stat 0 in de zone: melding "Geen schade" en GEEN kosten betaald
+[ ] Attack met Discard-cost: geweigerd met reden; builder toont daar nog een ⚠
+[ ] Zoom-overlay toont "Kost: ..." onder de Attack-knop
+[ ] Twee tabbladen: de betaalde kosten staan bij beide clients gelijk
+
+I. Stap 7: generieke activated abilities (isAbility-entry)
+   Testkaarten maken in de builder: Manifestation met een activated effect (GEEN Attack):
+   a) Draw 1 -> controller, kost Exhaust; b) GainSpite 2 -> controller, kost 1 Action;
+   c) Damage 2 mind -> opponentZone, kost Exhaust; d) Inflict 1 Burden -> opponent.
+[ ] Zoom-overlay van die kaart in play: sectie "Abilities" met een knop per ability en
+    "Kost: ..."; kaart in hand/discard/stack: geen sectie
+[ ] a) klikken: kaart exhausted, ability-entry (blauw) op de stack, nog GEEN kaart getrokken
+[ ] Tegenstander klikt Resolve: pass + logregel, priority naar de eigenaar; knop toont
+    "Resolve (naam)" voor wie niet aan zet is
+[ ] Eigenaar klikt Resolve: entry weg, kaart getrokken, logregel "Ability ... resolvet"
+[ ] b) kost 1 Action: Actions -1, Slumber tikt af, Spite +2 na Resolve
+[ ] c) na Resolve staat er een damage-entry op de stack tegen de tegenstander (type mind)
+[ ] d) na Resolve een Inflict-entry (Receive Burden) tegen de tegenstander
+[ ] Onvoldoende kosten (0 Actions / al exhausted): knop uitgeschakeld met reden;
+    geen state-wijziging
+[ ] Een andere kaart bovenop de ability casten: die resolvet eerst, ability blijft eronder
+[ ] Bronkaart tijdens het wachten naar de discard slepen: ability resolvet toch
+[ ] Instelling "Abilities" uit: sectie verdwijnt; "Directe effecten" uit: Draw-ability
+    uitgeschakeld met reden; "Inflict-effecten" uit: idem voor Inflict
+[ ] Builder: Draw/GainAction/GainSpite/Damage/Inflict-abilities zonder ⚠; Banish/chosen/
+    opponentZone-bij-Draw/Discard-cost wel met ⚠
+[ ] Een Minion met een extra activated effect: Attack-knop EN ability-knop naast elkaar
+[ ] Twee tabbladen: ability-entry en Resolve-knoppen kloppen bij beide clients
+
+J. Stap 8: OnEnterPlay / OnLeavePlay
+   Testkaarten: Manifestation met OnEnterPlay Draw 1 (controller); idem met OnEnterPlay
+   GainSpite 2; Manifestation met OnLeavePlay Draw 1; Manifestation met OnEnterPlay
+   Damage 1 body -> opponent; Incantation met OnResolve Damage op een gekozen kaart.
+[ ] Manifestation casten en resolven: Draw vuurt NA het resolven (logregel), kaart ligt dan in play
+[ ] OnEnterPlay Damage -> damage-entry op de stack tegen de tegenstander
+[ ] Incantation (resolvet naar discard) met OnEnterPlay-effect: vuurt NIET
+[ ] Manifestation handmatig naar een in-play zone slepen: GEEN OnEnterPlay
+[ ] Destiny voor beurt 1 plaatsen: GEEN OnEnterPlay
+[ ] Zoom-knoppen (Terug naar hand/Discard/Banish) op een in-play kaart: GEEN OnLeavePlay
+[ ] Handmatig zwarte teller verhogen tot de kaart sterft: GEEN OnLeavePlay
+[ ] Kaart Vulnerable maken (zwart = stat), dan met de Incantation-effect-schade raken:
+    kaart sterft naar de discard, OnLeavePlay-Draw vuurt voor de EIGENAAR van de dode kaart
+[ ] Schade van 3 op een Vulnerable kaart: OnLeavePlay vuurt maar een keer
+[ ] Vinkje "Enter/Leave play" uit: beide triggers staan stil
+[ ] OnEnterPlay met target chosen: logregel "niet toegepast", geen crash
+[ ] Builder: Draw/Gain/Damage/Inflict bij OnEnterPlay/OnLeavePlay zonder ⚠; chosen en
+    Banish wel met ⚠; OnExhausted/OnReady/OnBanish/OnDamaged nog met ⚠
+[ ] Twee tabbladen: effecten op de tegenstander komen bij beide clients gelijk aan
+
+K. Stap 9a: setTapped-refactor (GEEN gedragswijziging verwacht; alles moet zijn zoals voorheen)
+   Eerst `node tests-effecten.js` draaien. Testkaarten: Manifestation met Slumber 0, een met
+   Slumber 2, een Minion (Attack, cost ExhaustSelf), een Minion met Attack-cost Action 1.
+[ ] Zoom-knop Exhaust op een kaart in play: kaart getapt, witte teller = Slumber, logregel
+    "⤵ Exhaust: <kaart> (<speler>)" (zelfde tekst als voorheen)
+[ ] Zoom-knop Ready: kaart ready, witte teller blijft staan zoals hij stond, logregel "↺ Ready"
+[ ] Exhaust op een kaart in de HAND (geen tellerzone): getapt, geen teller, geen fout
+[ ] Slumber 2 kaart exhausten, dan 2x op Actions klikken (spendAction): teller 2 -> 1 -> 0,
+    derde klik: kaart ready (ongewijzigd)
+[ ] Slumber 0 kaart exhausten: bij de eerstvolgende actie meteen ready
+[ ] Minion-Attack (cost ExhaustSelf): kaart getapt + witte teller = Slumber, Attack-schade
+    op de stack, zoals in sectie H
+[ ] Minion-Attack met Action-cost: Slumber tikt af, bron wordt NIET meteen weer ready
+[ ] Casten met actionCost > 0: andere getapte kaarten tikken af/readyen (sectie D/H)
+[ ] Twee tabbladen: Exhaust/Ready via de zoom-knop komt bij beide clients gelijk aan
+    (de logregel verschijnt maar een keer)
+
+L. Stap 9a-bis: summoning sickness (Slumber > 0 = exhausted in spel)
+   Testkaarten: Manifestation Slumber 0, Slumber 2, en een Minion met Slumber 1 (Attack, ExhaustSelf).
+[ ] Manifestation Slumber 2 casten en resolven: ligt exhausted in play, witte teller 2, logregel
+    "komt exhausted in spel (Slumber 2)"
+[ ] Manifestation Slumber 0: komt READY in spel, geen extra logregel
+[ ] Twee acties besteden (Actions-klik of casten): teller 2 -> 1 -> 0, daarna ready
+[ ] Minion met Slumber 1 net resolved: Attack-knop uitgeschakeld (reden: al exhausted)
+[ ] Zelfde Minion nadat ze ready werd: Attack werkt weer, zoals sectie H
+[ ] Ability met ExhaustSelf-cost op een nieuwe kaart: knop uitgeschakeld tot ze ready is
+[ ] Handmatig slepen van een Slumber-kaart naar een in-play zone: komt READY (geen regel)
+[ ] Destiny voor beurt 1 plaatsen: blijft zoals voorheen (geen exhaust)
+[ ] OnEnterPlay-effect van de kaart vuurt nog steeds (sectie J) en OnLeavePlay/dood ongewijzigd
+[ ] Een kaart die dood gaat of naar de hand terugkeert en opnieuw gecast wordt: weer exhausted
+[ ] Twee tabbladen: de kaart is bij beide clients exhausted met dezelfde teller
+
+M. Stap 9b-1: kaart-effecten Exhaust / Ready (setting "Kaart-effecten")
+   Eerst `node tests-effecten.js` draaien. Testkaarten (bouw ze in de Kaartbuilder, trigger-effecten):
+   A = Manifestation Slumber 2 met OnEnterPlay Exhaust self; B = Manifestation Slumber 2 met
+   OnEnterPlay Ready self; C = Incantation met OnResolve Exhaust chosen; D = Incantation met
+   OnResolve Ready chosen; E = Manifestation met StartOfTurn Exhaust self; F = Manifestation met
+   EndOfTurn Ready self; G = Manifestation met OnRest Ready self; H = Manifestation met
+   OnOpponentRest Exhaust self; I = Incantation met OnPlayed Exhaust self; plus een gewone
+   Manifestation Slumber 2 als doelwit (T).
+[ ] C gesleept op T (in play, ook van de TEGENSTANDER): na Resolve is T exhausted, witte teller =
+    Slumber (2), logregel "⤵ Exhaust: T (speler) — door "C""
+[ ] D op een exhausted T: T is ready, de witte teller blijft staan zoals hij stond, logregel
+    "↺ Ready … — door "D""
+[ ] C op een al exhausted T: geen wijziging, logregel "Exhaust overgeslagen … was al exhausted"
+    (type tap-skip), geen fout; zelfde voor D op een ready T
+[ ] C gesleept op een ZONE of op de stack (niet op een kaart): logregel "niet toegepast", geen crash
+[ ] C zonder dat er een doelwit gekozen is (bv. gewoon naar de stack gesleept): logregel
+    "geen doelwit gekozen"
+[ ] A casten en resolven: kaart komt in play, summoning sickness (exhausted), OnEnterPlay Exhaust:
+    logregel "overgeslagen … was al exhausted", teller blijft op 2 (niet opnieuw gezet)
+[ ] B casten en resolven: eerst "komt exhausted in spel", dan Ready door het effect: B is ready,
+    witte teller blijft 2; B kan meteen een ExhaustSelf-ability/Attack betalen
+[ ] E in play: bij het begin van de eigen beurt (na het trekken van 5) is E exhausted, teller = Slumber
+[ ] F (exhausted gezet via de zoom-knop) in play: bij EndOfTurn van de eigenaar is F ready
+[ ] G exhausted in play: END TURN van de eigenaar -> G ready NA de automatische hand-discard
+[ ] H (van de tegenstander, ready) in play: END TURN van mij -> H exhausted (OnOpponentRest)
+[ ] I casten: logregel "OnPlayed-Exhaust niet toegepast — de bron-kaart ligt op dit moment niet in
+    play" (de kaart ligt dan op de stack), geen crash
+[ ] Meerdere effecten op een kaart (bv. OnResolve Draw 1 + Exhaust chosen): beide vuren, volgorde:
+    Draw eerst (directe actie), dan Exhaust (kaart-effect), dan Damage, dan Inflict
+[ ] Vinkje "Kaart-effecten" uit: A/B/C/D/E/F/G/H doen niets, geen logregels, geen fouten;
+    de Draw/Gain-effecten (vinkje "Directe effecten") werken gewoon nog
+[ ] Vinkje "Rest-triggers" of "Beurt-triggers" of "Enter/Leave play" uit: de bijhorende Exhaust/Ready-
+    effecten staan stil, de rest werkt
+[ ] Zoom-knop Exhaust/Ready werkt nog zoals in sectie K (geen "door"-tekst in de logregel)
+[ ] Een door een effect exhausted Minion met ExhaustSelf-cost: Attack-knop uitgeschakeld
+[ ] Builder: Exhaust/Ready met target self bij OnEnterPlay/OnResolve/StartOfTurn/EndOfTurn/OnRest/
+    OnOpponentRest zonder ⚠; chosen enkel bij OnResolve zonder ⚠ (anders ⚠ "enkel bij OnResolve");
+    controller/opponent ⚠ "enkel self of chosen"; self bij OnPlayed/OnDiscard/OnLeavePlay ⚠;
+    OnExhausted/OnReady nog ⚠; als activated ability nog ⚠
+[ ] Twee tabbladen: de exhausted/ready toestand door een effect komt bij beide clients gelijk aan
+    (de logregel verschijnt maar een keer)
+
+N. Stap 9b-2: kaart-effecten AddCounter / RemoveCounter (setting "Kaart-effecten")
+   Eerst `node tests-effecten.js` draaien. Testkaarten (Kaartbuilder, trigger-effecten; Tellerkleur kies je
+   in het effect, "Aantal" is het aantal tellers):
+   T = Manifestation Body 3 Slumber 2 (doelwit); J = Manifestation Body 3 met OnEnterPlay AddCounter
+   zwart 1 self; K = Manifestation Body 1 met OnEnterPlay AddCounter zwart 3 self + OnLeavePlay Draw 1;
+   L = Incantation OnResolve AddCounter wit 2 chosen; M = Incantation OnResolve RemoveCounter wit 1
+   chosen; N = Incantation OnResolve RemoveCounter zwart 1 chosen; O = Incantation OnResolve AddCounter
+   zwart 1 chosen; P = Manifestation met StartOfTurn AddCounter wit 1 self; Q = Incantation OnResolve
+   AddCounter chosen ZONDER tellerkleur; R = Incantation OnResolve AddCounter wit 0 chosen.
+[ ] O op T (ook T van de TEGENSTANDER): zwarte teller op T, logregel "legt 1× zwarte (damage) teller
+    op T"; geen schadetype-controle (de zone doet er niet toe, besluit 1)
+[ ] O herhaald op T tot zwart = Body-stat (3): T toont Vulnerable; nog een O: T sterft (naar de
+    discard), logregel "was al Vulnerable en sterft door nieuwe schade"
+[ ] K casten en resolven (Body 1): 1e teller = Vulnerable, 2e doodt de kaart, de 3e wordt niet
+    meer geplaatst: logregel "1 van de 3 zwarte tellers niet geplaatst — K is gestorven"; K ligt in
+    de discard, OnLeavePlay Draw 1 vuurt precies EEN keer voor de eigenaar (besluit 2 en 6)
+[ ] J casten en resolven: J heeft zelf 1 zwarte teller (Body 3, dus niet Vulnerable), geen fout
+[ ] L op een exhausted T (wit 2): wit wordt 4, logregel "➕ 2× witte (Time) teller op T (nu 4)";
+    daarna 4 acties besteden: 4 ticks, de 5e actie readiet T (besluit 4)
+[ ] L op een ready T: de witte teller komt op T maar T blijft ready; exhaust je T daarna, dan wordt
+    de teller overschreven met Slumber (2)
+[ ] M op T met wit 2: wit 1, logregel "➖ 1× witte (Time) teller van T (nu 1)"
+[ ] M op T met wit 0: geen fout, logregel "Geen witte (Time) teller om te verwijderen" (besluit 5)
+[ ] Zelfde M met Aantal 3 op T met wit 1: wit 0, logregel "— 2 minder dan gevraagd"
+[ ] T exhausted met wit 1, M erop (wit 0): T blijft exhausted tot de eerstvolgende actie; die
+    readiet T (RemoveCounter wit maakt niet zelf ready)
+[ ] N op T met zwart 2: zwart 1 (genezen); op een Vulnerable T (zwart = Body-stat): T is niet langer
+    Vulnerable zodra zwart onder de stat zakt
+[ ] N op T zonder zwarte tellers: logregel "Geen zwarte (damage) teller om te verwijderen", geen fout
+[ ] P in play: bij het begin van de eigen beurt (na het trekken van 5) +1 wit op P; P zelf blijft ready
+[ ] Q (geen tellerkleur): logregel "AddCounter niet toegepast — geen tellerkleur ingesteld", geen
+    crash, geen teller
+[ ] R (Aantal 0): logregel "niet toegepast — waarde is 0"
+[ ] O/L gesleept op een ZONE of zonder doelwit (gewoon naar de stack): logregel "niet toegepast",
+    geen crash
+[ ] Meerdere effecten op een kaart (OnResolve Draw 1 + AddCounter chosen): beide vuren, volgorde
+    Draw, dan kaart-effect, dan Damage, dan Inflict
+[ ] Vinkje "Kaart-effecten" uit: J/K/L/M/N/O/P doen niets, geen logregels, geen fouten
+[ ] Handmatige teller-knoppen in de zoom-view werken nog zoals voorheen (geen "door"-tekst, geen
+    OnLeavePlay bij handmatige dood, zie sectie J)
+[ ] Builder: het veld Tellerkleur verschijnt enkel bij AddCounter/RemoveCounter, het label van
+    Waarde wordt "Aantal" (default 1); ⚠ "Geen tellerkleur gekozen" zolang de kleur leeg is, ⚠
+    "Waarde is 0"; chosen enkel bij OnResolve zonder ⚠; self bij OnPlayed/OnDiscard/OnLeavePlay ⚠;
+    OnDamaged/OnExhausted nog ⚠; als activated ability nog ⚠
+[ ] Builder: de gekozen kleur blijft bewaard na herladen en na een Drive-sync; wissel je de actie
+    naar Draw, dan wordt de kleur gewist (zie normalizeEffect)
+[ ] AddCounter zwart vuurt (nog) GEEN OnDamaged: die trigger is in Fase D (besluit 7: zwart plaatsen
+    gedraagt zich dan hetzelfde als Damage)
+[ ] Twee tabbladen: tellers, Vulnerable en dood door een effect komen bij beide clients gelijk aan
+    (logregels maar een keer)
+
+O. Stap 9b-3: kaart-effecten ReturnToHand / Banish (setting "Kaart-effecten")
+   Eerst `node tests-effecten.js` draaien (de tests voor 9b-3 zitten in het laatste blok). Testkaarten
+   (Kaartbuilder, trigger-effecten; bij ReturnToHand/Banish bestaat geen Waarde/Aantal-veld dat telt):
+   U = Manifestation Body 3 Slumber 2 met OnLeavePlay Draw 1 (doelwit; krijg er ook een kopie bij de
+   TEGENSTANDER); V = Incantation OnResolve ReturnToHand chosen; W = Incantation OnResolve Banish chosen;
+   X = Manifestation OnEnterPlay ReturnToHand self; Y = Manifestation OnEnterPlay Banish self;
+   Z = Manifestation OnEnterPlay Banish self + OnEnterPlay Exhaust self + OnEnterPlay Draw 1;
+   S = Manifestation met StartOfTurn ReturnToHand self; T = Manifestation met EndOfTurn Banish self;
+   D = Destiny in play (pre-game in een zone gesleept); B = Burden die je handmatig in een in-play
+   zone sleept; H = Incantation OnResolve Banish chosen waarvan het doelwit een Destiny is.
+[ ] V op een eigen U in play: U gaat naar de HAND van de eigenaar (jij), logregel
+    "U: In Play — Body (jij) → Hand (jij) — door "V""; OnLeavePlay Draw 1 van U vuurt precies EEN keer
+    (jij trekt 1)
+[ ] V op U van de TEGENSTANDER: U gaat naar de hand van de TEGENSTANDER (niet naar jouw hand); de
+    OnLeavePlay Draw 1 van U geeft de TEGENSTANDER een kaart (eigenaar = eigenaar van de kaart)
+[ ] W op een eigen en een vijandelijke U: U gaat naar Banished van de eigenaar; OnLeavePlay vuurt een
+    keer; er verschijnt GEEN OnBanish-effect (Q6, wacht op Fase D)
+[ ] Een U met tellers/exhausted/Vulnerable die weggehaald wordt: na ReturnToHand (opnieuw spelen)
+    is ze weer ready, zonder tellers, en vers (Slumber-teller pas weer bij resolve)
+[ ] X casten en resolven: X komt in play (OnEnterPlay) en gaat meteen weer naar de hand; logregels
+    in volgorde: resolvet → X verplaatst → (OnLeavePlay), geen crash
+[ ] Y casten en resolven: Y gaat meteen naar Banished; geen dubbele logregels
+[ ] Z casten en resolven: Banish self gebeurt; daarna Exhaust self en de rest van Z worden
+    overgeslagen met logregel "doelwit ligt niet meer in spel"; de directe Draw 1 vuurt wel, want die
+    hangt niet aan de kaart in play (volgorde: Draw, dan kaart-effecten)
+[ ] S in play: bij het begin van de eigen beurt (na het trekken van 5) gaat S naar de hand; T in
+    play: bij EndOfTurn (na de discard) gaat T naar Banished; de overige kaarten ongemoeid
+[ ] H op een Destiny in play: logregel "Banish niet toegepast — Destiny kan nog niet gebanisht
+    worden" (card-skip), de Destiny blijft liggen, geen crash
+[ ] V op diezelfde Destiny: logregel "ReturnToHand niet toegepast — Destiny kan nog niet naar de
+    hand teruggebracht worden", geen verplaatsing
+[ ] Burden B (handmatig in een in-play zone) als doelwit van V en van W: wordt behandeld als
+    Manifestation, dus verplaatst naar hand resp. Banished
+[ ] V/W gesleept op een ZONE of zonder doelwit (gewoon naar de stack): logregel "niet toegepast",
+    geen crash
+[ ] V/W op een doelwit dat intussen weg is: logregel "niet toegepast", geen crash
+[ ] Meerdere effecten op een kaart (OnResolve Draw 1 + ReturnToHand chosen): beide vuren, volgorde
+    Draw, dan kaart-effect, dan Damage, dan Inflict
+[ ] Vinkje "Kaart-effecten" uit: V/W/X/Y/Z/S/T doen niets, geen logregels, geen fouten
+[ ] Vinkje "Enter/Leave play" uit: ReturnToHand/Banish verplaatst nog steeds, maar OnLeavePlay
+    (Draw 1 van U) vuurt niet
+[ ] Handmatig slepen van U naar hand/discard/banished en de zoom-knoppen (Terug naar hand/Discard/
+    Banish) vuren NIETS (OnLeavePlay Draw 1 niet), zoals voorheen (besluit 2)
+[ ] Dood van U door effect-schade (AddCounter zwart tot dood): OnLeavePlay vuurt nog steeds precies
+    een keer (regressie sectie N)
+[ ] Opslaan/stack: na een effect-keten blijft de stack en de zichtbaarheid van de kaarten kloppen
+    (geen kaart op twee plekken, geen verdwenen kaart); een herlaad van de pagina toont dezelfde stand
+[ ] Builder: ReturnToHand/Banish tonen geen Waarde/Aantal- of Tellerkleur-veld dat telt en geen ⚠
+    bij self (OnEnterPlay/OnResolve/StartOfTurn/EndOfTurn/OnRest/OnOpponentRest) of chosen (enkel
+    OnResolve); controller/opponent ⚠ "enkel self of chosen"; self bij OnPlayed/OnDiscard/OnLeavePlay
+    ⚠; OnBanish/OnExhausted/OnReady/OnDamaged nog ⚠; als activated ability nog ⚠
+[ ] Bekende randgeval (geen fout, wel noteren): een kaart die zichzelf bij OnResolve verplaatst
+    (OnResolve ReturnToHand self) vuurt OnLeavePlay voor haar OnEnterPlay (die volgt daarna
+    nog, omdat de kaart wel degelijk in play gekomen is) — melden of dat gewenst is
+[ ] Twee tabbladen: verplaatsing en OnLeavePlay-effecten komen bij beide clients gelijk aan
+    (logregels maar een keer, kaart staat niet op twee plekken)
+
+P. Stap 9b-4: ModifyShield (setting "Directe effecten")
+   Eerst `node tests-effecten.js` draaien (nieuw blok "ModifyShield" onderaan, o.a. de edge-cases van het
+   schildtype en de waarde). Testkaarten (Kaartbuilder, trigger-effecten; het veld "Schild" kies je in het
+   effect, de waarde mag negatief zijn):
+   A = Incantation OnResolve ModifyShield Body +2 controller;
+   B = Incantation OnResolve ModifyShield Mind -2 opponent;
+   C = Incantation OnResolve ModifyShield Soul -1 chosen;
+   N = Incantation OnResolve ModifyShield Body -3 opponent;
+   D = Manifestation StartOfTurn ModifyShield Body +1 controller;
+   E = Manifestation EndOfTurn ModifyShield Soul +1 controller;
+   F = Incantation OnResolve ModifyShield Body +1 controller ZONDER schildtype;
+   G = Incantation OnResolve ModifyShield Body 0 controller (waarde 0);
+   H = Manifestation OnRest ModifyShield Body +1 triggeringPlayer;
+   I = Manifestation OnOpponentRest ModifyShield Body -1 triggeringPlayer;
+   J = Manifestation OnEnterPlay ModifyShield Mind +1 controller + OnLeavePlay ModifyShield Mind -1 controller;
+   K = Incantation OnPlayed ModifyShield Soul +1 controller;
+   L = Incantation OnResolve Draw 1 + ModifyShield Body +1 controller + Damage 1 Body opponent;
+   M = Burden OnDiscard ModifyShield Soul -1 controller;
+   Q = Incantation OnResolve ModifyShield Body +2 controller + ModifyShield Mind -1 controller.
+   Zet voor elke test de schilden eerst met de handmatige knoppen op een bekende waarde.
+[ ] A: eigen Body-schild +2; logregel "X krijgt +2 Body-schild door A (nu N)"; stond Body op 0 (badge
+    Vulnerable), dan verdwijnt de badge
+[ ] B op Mind 2 van de tegenstander: Mind 0, logregel "verliest 2 Mind-schild ... (nu 0)", badge Confused
+    verschijnt
+[ ] B op Mind 1: schild 0, logregel eindigt op "— 1 minder dan gevraagd" (nooit negatief)
+[ ] B op Mind 0: geen fout, logregel "Mind-schild blijft 0 ... (al op 0)", schild blijft 0
+[ ] N op een Body-schild van 1 (grote negatieve waarde): 0, "2 minder dan gevraagd"
+[ ] C (chosen) gesleept op een kaart van de TEGENSTANDER: Soul-schild van de tegenstander -1; op een eigen
+    kaart: eigen schild; op een In Play-zone: de eigenaar van die zone; zonder doelwit (naar de stack):
+    logregel "niet toegepast — geen doelwit gekozen", geen crash
+[ ] D in play: bij het begin van de eigen beurt (na het trekken van 5) Body +1; E in play: bij EndOfTurn
+    (na de discard) Soul +1; de beurt van de tegenstander raakt D/E niet
+[ ] F: logregel "ModifyShield niet toegepast — geen schildtype ingesteld op het effect", schilden
+    ongewijzigd, geen crash
+[ ] G (waarde 0): er gebeurt niets en er komt GEEN logregel (zoals Draw 0); de builder toont wel ⚠
+    "Waarde is 0"
+[ ] H in play: bij END TURN van de eigenaar (Rest) Body +1 voor de rustende speler; I in play: bij de
+    Rest van de TEGENSTANDER van I's eigenaar verliest de rustende speler 1 Body (triggeringPlayer)
+[ ] J casten en resolven: Mind +1 bij OnEnterPlay; verlaat J het spel via een effect (ReturnToHand/
+    Banish uit sectie O) of dood door effect-schade: OnLeavePlay Mind -1, precies een keer; handmatig
+    slepen of de zoom-knoppen vuren niets
+[ ] K casten: Soul +1 al bij het casten (kaart ligt nog op de stack), niet pas bij Resolve
+[ ] M als Burden bij END TURN uit de hand gediscard: na Resolve van de Burden op de stack Soul -1
+[ ] L: volgorde in het log Draw, dan ModifyShield, dan (kaart-effecten), dan de Damage-entry op de stack
+[ ] Q: beide effecten vuren, in de volgorde van de kaart
+[ ] Schade na een schildwijziging: Take X ... damage trekt het schild NIET af (bekend gat, geen fout);
+    de banish-regels werken zoals voorheen
+[ ] Vinkje "Directe effecten" uit: A-Q doen niets, geen logregels, geen fouten (Draw/Gain doen ook niets)
+[ ] Vinkje van een trigger uit: Beurt-triggers (D/E stil), Rest-triggers (H/I), Enter/Leave play (J),
+    OnPlayed (K), Effecten bij resolve (A/B/C/F/G/L/N/Q), Effecten bij discard (M); de rest werkt
+[ ] Handmatige schild-knoppen (+/- en het invoerveld) en de Rest (+1 schild) werken nog zoals voorheen
+[ ] Builder: het veld "Schild" (Body/Mind/Soul) verschijnt enkel bij ModifyShield (bij Damage heet het
+    "Schadetype"); het label van Waarde is "Waarde (negatief = verlagen)"; een negatieve waarde is
+    invoerbaar; ⚠ "Geen schildtype gekozen" zolang het veld leeg is; ⚠ "Waarde is 0"; target
+    controller/ownActiveWizard/opponent/opponentActiveWizard zonder ⚠; chosen enkel bij OnResolve;
+    triggeringPlayer enkel bij OnRest/OnOpponentRest; self/allInPlay/opponentZone ⚠ "werkt niet voor
+    ModifyShield"; OnExhausted/OnReady/OnBanish/OnDamaged nog ⚠; als activated ability nog ⚠
+[ ] Builder edge-cases: wissel een Damage-effect met type Body naar ModifyShield: het type blijft staan
+    (zelfde veld, controleer dat het klopt); wissel ModifyShield naar Draw: het type is gewist; het
+    schildtype en een negatieve waarde blijven bewaard na herladen en na een Drive-sync
+[ ] Twee tabbladen: schildwijzigingen komen bij beide clients gelijk aan (logregel maar een keer)
+
+Q. Stap 10 (Fase D): reactieve triggers OnExhausted / OnReady / OnDamaged / OnBanish (vinkje "Reactieve triggers")
+   Eerst `node tests-effecten.js` draaien (nieuw blok "Fase D" onderaan). Elke reactieve gebeurtenis geeft in het log
+   eerst de eigen regel (bv. "⤵ Exhaust"), daarna "🔔 <Trigger>: <kaart> (<speler>)" en dan de effecten van die kaart.
+   Testkaarten (Kaartbuilder; alle Manifestations hebben Body/Mind/Soul >= 3 en Slumber 0, tenzij vermeld):
+   A = Manifestation, OnExhausted Draw 1 controller;
+   B = Manifestation, OnReady GainAction 1 controller;
+   C = Manifestation, OnDamaged ModifyShield Body +1 controller + OnLeavePlay GainSpite 1 controller;
+   M = Manifestation, OnDamaged AddCounter wit 1 self;
+   E = Manifestation, OnBanish Draw 1 controller;
+   I = Manifestation met een Attack (cost ExhaustSelf) + OnExhausted GainSpite 1 controller;
+   J = Manifestation met een ability (cost Action 1, effect Draw 1) en OnReady GainSpite 1 controller;
+   K = Manifestation, OnReady Exhaust self + OnExhausted Ready self (lus-test);
+   F = Incantation, OnResolve Exhaust chosen;  G = Incantation, OnResolve Ready chosen;
+   H = Incantation, OnResolve Damage 1 Body chosen;  H2 = idem met waarde 2;
+   D = Incantation, OnResolve Banish chosen;
+   Q = Incantation, OnResolve Draw 1 + Exhaust chosen + Damage 1 Body opponent;
+   R = Manifestation, OnBanish Damage 1 Body opponent (stack-entry, test D9);
+   S = Manifestation, OnDamaged Draw 1 controller met Slumber 2 (komt exhausted in spel).
+[ ] OnExhausted via effect: F gesleept op A (in play): "⤵ Exhaust", daarna "🔔 OnExhausted: A", daarna
+    "🎴 ... trekt 1 kaart"
+[ ] Handmatig telt niet: de Exhaust-knop in de zoom-view van A (en daarna Ready) geeft geen 🔔-regel en geen
+    Draw; handmatige zwarte/witte teller-knoppen idem
+[ ] Al exhausted: F nog eens op A: "⤵ Exhaust overgeslagen ... was al exhausted", GEEN 🔔-regel
+[ ] OnExhausted via kost: I valt aan (ExhaustSelf): eerst de aanval-regel en de schade-entry, daarna "🔔
+    OnExhausted: I" en +1 Spite
+[ ] OnReady via effect: G op een exhausted B: "↺ Ready", "🔔 OnReady: B", +1 Action. G op een B die al ready
+    is: overgeslagen, geen 🔔
+[ ] OnReady via Slumber: B exhausted (met de knop), dan op "⚡ Actions" klikken: B wordt ready (zie de
+    Slumber-regel), "🔔 OnReady: B" volgt; hetzelfde bij het casten van een kaart met Action-kost en bij het
+    activeren van J (Action-kost): J zelf blijft exhausted/niet ready, andere kaarten die ready worden vuren
+[ ] Handmatige Ready-knop op een exhausted B: geen 🔔
+[ ] OnDamaged: H op C (chosen, C is Manifestation in Body): de schade-regel, dan "🔔 OnDamaged: C" en +1
+    Body-schild. H2 (waarde 2): OnDamaged vuurt MAAR EEN keer (+1 schild, niet +2)
+[ ] Handmatige zwarte teller op C: geen 🔔
+[ ] Dodelijke schade (D4): C is al Vulnerable en krijgt via H nog schade: volgorde in het log: 💀-regel,
+    "🔔 OnDamaged: C" (+1 Body-schild), de verplaatsing naar de discard, daarna de OnLeavePlay-effecten van C
+    (+1 Spite)
+[ ] M (OnDamaged AddCounter wit self): na schade door H krijgt M een witte teller (kaart ligt nog in play);
+    ook bij dodelijke schade wordt de teller nog gelogd (zonder crash)
+[ ] OnBanish via effect: D (Banish chosen) op E: E naar banished (eventueel OnLeavePlay eerst), dan "🔔
+    OnBanish: E" en de eigenaar van E trekt 1 kaart (ook als E van de TEGENSTANDER is: die trekt)
+[ ] ReturnToHand-effect en de zoom-knoppen (Banish/Terug naar hand/Discard) op E: geen 🔔 OnBanish
+[ ] OnBanish bij Wizard-schade: de tegenstander neemt via een damage-entry Body-schade 3 terwijl 2 kaarten uit
+    zijn deck-top E zijn: per gebanishte E een "🔔 OnBanish" en een Draw (D6, uit elke zone: ook Mind-schade uit
+    de hand en Soul-schade uit de discard). Kaarten zonder OnBanish-effect geven geen regels
+[ ] D9: R in de hand/deck van speler X wordt door Wizard-schade gebanisht: "🔔 OnBanish: R", een damage-entry
+    op de stack; als die entry genomen wordt en daarbij weer kaarten met OnBanish banisht: GEEN nieuwe 🔔 (de
+    entry kwam uit een reactief effect). Een gewone damage-entry (niet uit een reactief effect) vuurt wel
+[ ] Lus (D1): K exhausted; G (Ready) op K: "↺ Ready", "🔔 OnReady: K", "⤵ Exhaust" (door het effect) en dan
+    "⚠️ ... OnExhausted niet afgevuurd — veroorzaakt door een reactief effect"; geen eindeloze lus, K blijft
+    exhausted
+[ ] Wachtrij (D7): Q op A (Exhaust chosen): volgorde in het log: Draw 1, de Exhaust, de Damage-entry op de
+    stack, DAARNA pas "🔔 OnExhausted: A" en zijn effect (de reactie wacht tot het effecten-blok klaar is)
+[ ] Vinkje "Reactieve triggers" uit: A-S doen hun gewone actie (Exhaust, Ready, schade, Banish) maar geen 🔔,
+    geen reactieve effecten en geen "niet afgevuurd"-regels
+[ ] Vinkje "Kaart-effecten" uit: F/G/D doen niets (zoals voorheen) en dus ook geen 🔔; "Directe effecten" uit:
+    het reactieve effect (Draw/Gain/Shield) blijft stil terwijl de 🔔-regel er wel staat
+[ ] S (Slumber 2) komt na Resolve exhausted in spel: GEEN 🔔 OnExhausted (summoning sickness telt niet mee,
+    bewuste keuze)
+[ ] Bekend: met de instelling "turnRedux" uit (oud gedrag) vuurt de Rest-ready geen OnReady (niet gebouwd)
+[ ] Builder: voor OnExhausted/OnReady/OnDamaged/OnBanish geen ⚠ "nog niet afgevuurd" meer; Draw/Gain/
+    ModifyShield/Damage/Inflict met controller/opponent zonder ⚠; chosen ⚠ ("enkel bij OnResolve" resp.
+    "werkt niet bij ..."); triggeringPlayer ⚠; kaart-acties met self zonder ⚠ bij OnExhausted/OnReady/
+    OnDamaged maar ⚠ "niet in play" bij OnBanish; kaart-acties met controller ⚠
+[ ] Twee tabbladen: reactieve effecten komen bij beide clients gelijk aan (🔔-regels en effecten maar een keer)
+
+R. Mobiele effecten-editor (Wizards_Mobile.html; ververs de pagina/app volledig: de service worker cache is nu v3)
+[ ] Nieuw effect met actie Damage: veld "Schadetype" (Body/Mind/Soul) verschijnt; bij ModifyShield heet het
+    "Schildtype" en het waarde-label "Waarde (negatief = verlagen)"; een negatieve waarde is invoerbaar
+[ ] AddCounter/RemoveCounter: veld "Tellerkleur" (Wit/Zwart); Inflict: veld "Burden" met de Burdens uit de collectie en
+    het label "Aantal"; bij andere acties zijn die velden verborgen
+[ ] Onder het effect staat een gele ⚠-lijst die meeverandert met trigger/actie/target/waarde (zelfde meldingen als op de
+    computer, bv. "Geen schildtype gekozen"); OnExhausted/OnReady/OnDamaged/OnBanish geven geen "nog niet afgevuurd" meer
+[ ] De keuzes blijven bewaard na sluiten/heropenen van de kaart en na een Drive-sync, en zijn zichtbaar in de
+    Kaartbuilder op de computer (en omgekeerd: een effect van de computer toont zijn type/kleur/Burden op mobiel)
+[ ] Een activated ability (op de computer gemaakt) toont op mobiel de melding en geen triggerveld; bewerken van de
+    waarde laat de kosten en het Attack-vinkje intact (controleer op de computer)
+[ ] De oude "Extra Spite-kost"/"exhaust"-velden zijn weg uit de effectrij
+
+S. Gedeelde basisregels, instellingen-backfill en schemaVersion (2026-11-25; eerst `node tests-effecten.js` draaien)
+[ ] Casten: een Manifestation/Incantation/Hex/Burden met kost betaalt nog steeds Actions/Spite; log "betaalt ..." toont nu
+    eerst Spite en dan Actions (voorheen omgekeerd); Slumber-tikken en OnReady na een cast gedragen zich als voorheen
+[ ] Een Destiny/Wizard heeft geen cast-kost (geen betaling, geen legaliteitsfout op Actions)
+[ ] Klik op "Actions": teller -1, Slumber tikt af, een kaart die ready wordt geeft nog steeds OnReady
+[ ] Een Attack/ability met Action- en Spite-kost betaalt precies als voorheen; "Onvoldoende Actions/Spite" meldingen ongewijzigd
+[ ] Zoom-view, slepen naar een In Play-zone, casten op een kaart, summoning sickness (Slumber > 0 komt exhausted in spel):
+    alles werkt als voorheen (in-play herkenning loopt nu overal via isInPlayZone)
+[ ] Kaart uit de collectie verwijderen terwijl ze nog in een deck/hand zit en dan casten: geen foutmelding in de console,
+    log toont "(verwijderde kaart)"; de kaart verdwijnt niet spoorloos uit de state
+[ ] Instellingen: een autosave van vróór deze wijziging (match met een tandwiel-menu zonder nieuwere instellingen) laadt met
+    de ontbrekende instellingen UIT (niet aangevinkt), en de beurtstructuur verandert niet midden in de match; een NIEUWE
+    match start nog steeds met alle 18 instellingen AAN
+[ ] schemaVersion: console `JSON.parse(localStorage.getItem("wizards_test_arena_autosave_v1")).schemaVersion` geeft 1
+[ ] Twee tabbladen, zelfde versie: spelen werkt als voorheen (geen melding "Andere arena-versie")
+[ ] Twee tabbladen, ENE tab met de oude arena.html (bv. de GitWiz-kopie van september): de nieuwe tab toont eenmalig de
+    melding "Andere arena-versie" en past de oude stand niet toe; de statusbalk wordt rood
+
+T. Engine uitgesplitst naar shared/game-engine.js (2026-11-25; eerst `node tests-effecten.js` en `node tests-engine.js`)
+[ ] Pagina laadt zonder fouten in de console (ook als game-engine.js ontbreekt: dan staat er "createGameEngine is not defined")
+[ ] Attack met een Minion: damage-entry op de stack, Minion exhausted; Attack met te weinig Actions/Spite of een al
+    exhausted Minion: melding "Attack niet toegestaan" met dezelfde reden als voorheen; stat 0: melding "Geen schade"
+[ ] Ability activeren en resolven (Draw/Gain/Damage/Inflict): kosten betaald, entry op de stack, effect bij Resolve
+[ ] Schade op een kaart op de stack (zoom-view): vast schadetype = meteen op de stack; anders keuzepopup Body/Mind/Soul
+[ ] Take X damage / Receive Burden: werkt enkel voor het doelwit; niet-doelwit in een tweede tab kan er niet op klikken
+[ ] OnResolve/OnDiscard/OnEnterPlay/OnLeavePlay/turn-/rest-effecten en reactieve triggers (OnExhausted/OnReady/OnDamaged/
+    OnBanish) vuren als voorheen (rooktest met een paar kaarten uit de eerdere secties)
+[ ] Twee tabbladen: per klik komt er een stand over (geen tussenstanden die even oplichten bij de tegenstander)
+[ ] Resolve en END TURN: in een tweede tab kan de niet-bedienende speler ze niet starten (ook niet via de console)
+
+F. Multiplayer (enkel bij stappen die state delen: 4, 7)
+[ ] Twee tabbladen/toestellen: zelfde stand na elke actie, enkel de juiste
+    speler heeft de Resolve-/Take-knop actief
+
+Resultaten
+----------
+Datum | Na stap | Alles OK? | Opmerkingen

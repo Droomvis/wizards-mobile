@@ -668,4 +668,160 @@ niets doet, toont onder elk effect een gele waarschuwingslijst (bv. target
 schadetype) en herberekent dat live. Het label van de Conditie is altijd
 met ⚠ gemarkeerd (er is geen condition-parser). ONDERHOUD: wie in arena.html
 iets nieuws laat afvuren, past EFFECT_SUPPORT mee aan — anders blijft de
-markering ten onrechte staan. Wizards_Mobile.html heeft deze markering niet.
+markering ten onrechte staan. Wizards_Mobile.html had deze markering toen niet (sinds 2026-11-24 wel, zie de laatste entry).
+
+================================================================================
+Op 2026-11-24 bijgewerkt (Stap 11 van het Effecten-traject): ACHTERSTAND SINDS
+2026-08-24 + het volledige Effecten-traject (Stap 0 t/m 10). Details per besluit:
+Effecten-specificatie.txt (met VOORTGANG), Interpreter-specificatie (Minion-
+Attack).txt, Inflict-specificatie (Burden-infliction).txt en Smoke-testlijst
+(Effecten).txt (secties A t/m R).
+================================================================================
+
+1) DATAMODEL EN ONDERSTEUNINGSMARKERING (shared/card-data.js)
+- normalizeEffect: kind (trigger/activated), trigger, action, target, value,
+  damageType (enkel Damage zonder Attack, en ModifyShield: dan het SCHILDTYPE),
+  counterColor (enkel AddCounter/RemoveCounter), burdenId (enkel Inflict),
+  isAttack, condition (vrije tekst, wordt niet geevalueerd), costs[] (enkel
+  activated). Velden die niet bij de actie horen worden bij normalize leeg.
+- EFFECT_SUPPORT is de met de hand bijgehouden lijst van wat de arena EFFECTIEF
+  uitvoert: triggers (per trigger de acties), damageTargets, inflictTargets,
+  directActions/directTargets, cardActions/cardTargets, abilityActions/
+  abilityTargets, costs. effectIssues/effectTargetNote leveren de ⚠-regels voor
+  cardbuilder.html en (sinds 2026-11-24) Wizards_Mobile.html. Wie in arena.html
+  iets nieuws laat afvuren past EFFECT_SUPPORT mee aan.
+- Nu ondersteund: triggers OnPlayed, OnResolve, OnEnterPlay, OnLeavePlay,
+  OnExhausted, OnReady, OnDamaged, OnBanish, OnRest, OnOpponentRest,
+  StartOfTurn, EndOfTurn, OnDiscard. Acties Damage, Inflict, Draw, GainAction,
+  GainSpite, ModifyShield, Exhaust, Ready, AddCounter, RemoveCounter,
+  ReturnToHand, Banish. Niet: Heal, Search, ModifyStat, Discard (actie en cost).
+
+2) DISPATCH IN arena.html (volgorde bij elk trigger-moment)
+- fireDirectActionEffects (DIRECT_ACTION_HANDLERS: Draw, GainAction, GainSpite,
+  ModifyShield; geen stack-entry, eigen kant) -> fireCardTriggerEffects
+  (CARD_ACTION_HANDLERS: Exhaust, Ready, AddCounter, RemoveCounter, ReturnToHand,
+  Banish; direct, doelwit self of chosen via resolveCardTargetRef) ->
+  fireDamageTriggerEffects (damage-entry op de stack, of zwarte tellers op een
+  gekozen permanent) -> fireInflictTriggerEffects (inflict-entry op de stack).
+  fireDirectTriggerEffects = de eerste twee samen.
+- Aanroepers: fireOnResolveEffects (resolveStackTop), fireOnDiscardEffects,
+  fireRestTriggers (fase "stack" = Inflict, fase "direct" = de rest),
+  fireTurnTriggers (StartOfTurn/EndOfTurn), fireOnPlayedEffects (castCardToStack),
+  fireEnterPlayEffects/fireLeavePlayEffects.
+- END TURN-volgorde: Rest -> rest-Inflict (stack) -> hand-limiet/Burdens ->
+  OnDiscard -> directe rest-effecten -> EndOfTurn -> beurtwissel -> 5 trekken ->
+  StartOfTurn.
+- Doelwitten: resolveInflictTargetIdx (spelers; ook voor directe acties),
+  resolveCardTargetRef (kaarten), resolveAbilityTargetIdx (abilities).
+- Besluiten die blijven gelden: eigen-kant-effecten direct; enkel AUTOMATISCHE
+  bronnen vuren OnEnterPlay/OnLeavePlay/reactieve triggers (handmatig slepen,
+  zoom-knoppen, handmatige tellers en de pre-game Destiny-plaatsing vuren
+  niets); een Action-kost telt als besteedde actie (Slumber tikt af);
+  skip-acties loggen altijd een reden (type "...-skip"); Heal buiten scope.
+
+3) KOSTEN, ATTACK EN ABILITIES
+- game-mechanics.js: canPayCosts/payCosts (volgorde Spite, Action met Slumber-tik,
+  SelfVulnerable, ExhaustSelf als laatste; geeft ook readied[] en exhausted
+  terug), describeCosts. Minion-Attack: activateMinionAttack (zone bepaalt waarde
+  en schadetype; damage-entry op de stack). Generieke activated abilities
+  (niet-Attack): isAbility-stack-entry (listAbilityEffects, abilityActivationCheck,
+  activateAbility, resolveAbilityEntry, describeAbilityEffect); de tegenstander
+  krijgt eerst priority; ondersteund: Draw, GainAction, GainSpite, Damage,
+  Inflict.
+- setTapped (arena.html) + setTappedState (game-mechanics.js): de ene plek voor
+  exhaust/ready incl. Slumber-teller. Summoning sickness: een kaart met
+  Slumber > 0 komt exhausted in spel (resolveStackTop).
+- Inflict (2026-11-07): inflict-entry op de stack, het slachtoffer neemt de
+  Burden(s) in zijn discard (applyInflict); collectRestTriggerSources voor
+  OnRest/OnOpponentRest.
+
+4) REACTIEVE TRIGGERS (Fase D, Stap 10)
+- OnExhausted/OnReady/OnDamaged/OnBanish vuren voor DE KAART DIE HET OVERKOMT,
+  enkel bij automatische bronnen: Exhaust/Ready-acties (setTapped opts.reactive),
+  kosten (emitPaymentReactions), Slumber-tikken (emitReadiedEvents; spendAction,
+  castCardToStack), schade aan een permanent door een effect
+  (addCounterToInstance opts.auto + reactiveDamage: een OnDamaged per effect),
+  Banish (moveCardByEffect) en Wizard-schade-banish (takeStackDamage; OnBanish
+  vanuit elke zone, per gebanishte kaart).
+- Wachtrij: reactiveBlock om de fire*-dispatchers; emitReactiveEvent zet in de
+  rij, flushReactiveEvents handelt af (FIFO) na het buitenste blok. Diepte 1
+  (REACTIVE_MAX_DEPTH): wat een reactief effect zelf veroorzaakt vuurt geen
+  reactieve triggers (log "reactief-skip"); een damage-entry uit een reactief
+  effect krijgt fromReactive. Uitzondering: bij dodelijke schade vuurt OnDamaged
+  meteen (vlak voor de dood), dan pas OnLeavePlay.
+- Pure helpers in game-mechanics.js: REACTIVE_TRIGGERS, decideReactiveEvent,
+  makeReactiveEvent, dequeueReactiveEvent, reactiveEffectsOf.
+- Bewust niet: exhausted-in-spel door Slumber, de oude rest-ready (turnRedux
+  uit), Wizard-schade als OnDamaged-bron (wacht op een condition-parser).
+
+5) PURE FUNCTIES (shared/game-mechanics.js, getest met `node tests-effecten.js`,
+   899 geslaagd op 2026-11-24)
+collectTurnTriggerSources, collectRestTriggerSources, applyGain, applyShieldChange
+(ModifyShield), adjustCounterState, setTappedState, resolveCardTargetRef,
+canMoveCardByEffect, resolveInflictTargetIdx, applyInflict, canPayCosts, payCosts,
+describeCosts, resolveAbilityTargetIdx, describeAbilityEffect, plus de
+reactieve helpers hierboven. tickSlumberOnce geeft nu ook readied[] terug.
+
+6) INSTELLINGEN (tandwiel-menu arena.html, allemaal default AAN, uit = stil
+   overslaan): autoPayCost, enforceCastLegality, resolveEnabled, hideOpponentHand,
+   freeActionSpending, turnRedux, resolveEffects, burdenDiscardStack,
+   discardEffects, restEffects, inflictEffects, directEffects (Draw/GainAction/
+   GainSpite/ModifyShield), turnEffects, playedEffects, abilityEffects,
+   enterPlayEffects, cardEffects (Exhaust/Ready/Counter/ReturnToHand/Banish),
+   reactiveEffects (18 in totaal).
+
+7) MOBIEL (Wizards_Mobile.html, sw-mobile.js)
+- De keuzelijsten (trigger/actie/target) komen uit shared/card-data.js. Sinds
+  2026-11-24 heeft de mobiele effecten-editor ook de velden Schadetype/Schildtype,
+  Tellerkleur en Burden, de ⚠-lijst (effectIssues) en normalizeEffect bij elke
+  wijziging; het oude, dode `eff.cost`-object is weg. NOG NIET op mobiel: Soort
+  (trigger/activated), costs-lijst en Attack-vinkje (alleen een melding bij een
+  activated effect; zie TO DO Thema 3). CACHE_NAME staat op ...-shell-v3.
+
+8) BEKENDE GATEN
+- Schild wordt nergens bij schade afgetrokken (ModifyShield wijzigt het enkel).
+- Een kaart met OnResolve ReturnToHand self vuurt OnLeavePlay voor OnEnterPlay
+  (randgeval, door de auteur geaccepteerd).
+- Geen condition-parser (condition vuurt altijd, ⚠ blijft); geen meervoudige
+  targets (allInPlay e.d.); geen "eenmaal per beurt"; chosen werkt niet bij
+  activated abilities; Destiny-banish-regel ontbreekt.
+- Het aantal vinkjes (18) groeit; groeperen overwegen.
+
+Op 2026-11-25 opgeruimd (nazicht engine/UI-scheiding van arena.html):
+- game-mechanics.js kreeg een blok "Gedeelde basisregels": IN_PLAY_ZONES/isInPlayZone (vervangt vier
+  schrijfwijzen van "ligt in play"; arena's zoneAllowsCounters is nu een alias), CAST_COST_TYPES/castPaysCost
+  (welke types bij het casten betalen; stond als TYPE_CONFIG.cost in card-render.js, dat enkel weergave is),
+  checkAffordable en spendResources. checkCastLegality, canPayCosts, payCosts, castCardToStack en spendAction
+  delen nu dezelfde betaal-/controleplek (voorheen drie kopieën). game-mechanics.js leest TYPE_CONFIG niet meer.
+- DAMAGE_TYPE_LIST (card-data.js) valideert schadetypes in arena.html i.p.v. de labeltabel DAMAGE_TYPE_LABELS.
+- ensureArenaSettings: een ontbrekende instelling in een bestaande arena = UIT (voorheen de nieuwe default AAN,
+  waardoor een lopende match midden in het spel nieuw gedrag kreeg). Nieuwe matches: alles via freshArenaSettings().
+- arena.schemaVersion (ARENA_SCHEMA_VERSION = 1, arena.html): gestempeld bij aanmaak en bij laden van een oudere
+  autosave; loadArena begint schoon bij een hogere versie; mpApplyRemoteState weigert een stand met een andere of
+  ontbrekende versie (melding + rode status, geen crash). Verhogen zodra de vorm van de state wijzigt.
+- castCardToStack: het Spite-logblok crashte op een verwijderde kaart (card null) nadat de kaart al uit de hand was.
+
+Op 2026-11-25 (vervolg): engine/UI-scheiding, voorstellen (c) en (d):
+- Nieuw: shared/game-engine.js, createGameEngine(env) met env = { getArena, findCard, ensureSettings, save, render }.
+  Bevat: zone-helpers, performCardMove, tellers/exhaust (addCounterToInstance, removeCounterFromInstance,
+  setTapped), drawCards, schade/Inflict op de stack, de effect-handlers, alle fire*-dispatchers, de reactieve
+  wachtrij, takeStackDamage/takeStackInflict, attackWithMinion, activateAbility, resolveAbilityEntry,
+  planStackDamage/pushChosenDamage, fireRestTriggers, en de constanten ZONE_LABELS/DAMAGE_TYPE_*.
+  Geladen in arena.html na game-mechanics.js. arena.html maakt er een instantie van (`const engine`) en haalt de
+  gebruikte functies met destructuring binnen, zodat bestaande aanroepen ongewijzigd bleven.
+- De engine leest de arena-state live via env.getArena() (arena.html vervangt de variabele soms) en toont nooit
+  popups: functies die iets kunnen weigeren geven { ok:false, title?, reason? } terug (zonder reason = stil negeren).
+  Wie handelt komt als actingIdx mee (null = geen restrictie, solo) i.p.v. dat de engine de sessie leest. In
+  arena.html staan dunne wrappers met de oude namen (takeStackDamage, takeStackInflict, activateMinionAttack,
+  activateAbility, openStackDamageChoice) die clientOwnedPlayerIdx() meegeven en reason via showArenaNotice tonen.
+- silent: addCounterToInstance, pushDamageToStack, pushInflictToStack en performCardMove/setTapped nemen
+  opts.silent. Alle effect-gedreven aanroepen geven silent:true mee; hun aanroepers (resolveStackTop,
+  castCardToStack, start/endPlayerTurn, de reactieve flush, attackWithMinion) slaan zelf een keer op. Voorheen kon een
+  klik meerdere half-afgewerkte standen naar de tegenstander sturen.
+- Eigenaarscontrole: resolveStackTop en requestEndTurn weigeren nu zelf als de client een andere speler bedient
+  (voorheen enkel via de disabled-vlag van de knop).
+- Blijft in arena.html (volgende stap als je de regels ook testbaar wilt): castCardToStack, resolveStackTop,
+  startPlayerTurn/endPlayerTurn/pushBurdenToStack, restPlayer, spendAction, requestEndTurn en alle UI.
+- Tests: tests-engine.js (node tests-engine.js) draait de engine tegen een nep-omgeving (76 tests).
+- GitWiz: kopieer arena.html en shared/game-engine.js samen met de overige shared/*.js; arena.html laadt
+  game-engine.js nu als apart script.

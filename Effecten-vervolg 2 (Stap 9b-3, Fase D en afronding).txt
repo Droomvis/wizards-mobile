@@ -1,0 +1,153 @@
+EFFECTEN-VERVOLG 2 — OVERDRACHT VOOR EEN VERSE SESSIE
+(Stap 9b-3: ReturnToHand + Banish, daarna ModifyShield, Fase D, Stap 11)
+Opgesteld: 2026-11-23. Vervangt "Effecten-vervolg (Fase C, D en afronding).txt" waar die ouder is.
+Taal: alle docs, logregels en UI-tekst in het Nederlands.
+
+============================================================
+0. EERST LEZEN — AFSPRAKEN
+============================================================
+- Stap voor stap. SPEC EERST: schrijf een mini-spec met expliciete vragen + een voorstel per vraag.
+  Bouw pas nadat de auteur geantwoord heeft. Dus: 9b-3 begint met een mini-spec, NIET met code.
+- Na elke wijziging in arena.html: nieuwe sectie in "Smoke-testlijst (Effecten).txt" en wachten op
+  het "geslaagd" van de auteur voor de volgende stap.
+- Pure functies met expliciete state -> shared/game-mechanics.js, met Node-tests in tests-effecten.js.
+  De auteur draait zelf `node tests-effecten.js` (jij kunt dat niet).
+- EFFECT_SUPPORT in shared/card-data.js wordt met de hand bijgehouden.
+- Architectuur.txt en TO DO.txt worden pas helemaal aan het EINDE bijgewerkt (Stap 11).
+- Elke nieuwe automatische effect-soort krijgt een instellingen-checkbox (standaard AAN);
+  overgeslagen acties loggen een reden (type "...-skip"); nooit stil falen.
+- Omgeving: alleen mcp__claude-device__lcl-Filesystem-* tools bereiken de pc van de auteur
+  (read_text_file, edit_file met oldText/newText, write_file, search_files). Toegestane mappen:
+  C:\Users\ruben\Desktop\Wizards en ...\Ambient Space Music, the Browsergame.
+  Kopieren naar de sandbox lukt niet. arena.html (~226 KB, ~4456 regels) wordt afgekapt bij lezen:
+  Grep/Read het gecachete tool-result-bestand met offset/limit, of search_files.
+- Bestanden staan in C:\Users\ruben\Desktop\Wizards\development\ (arena.html, cardbuilder.html,
+  shared\card-data.js, shared\game-mechanics.js, shared\game-rules.js, shared\card-render.js,
+  tests-effecten.js, Effecten-specificatie.txt, Smoke-testlijst (Effecten).txt).
+
+NB (correctie): de code voor 9b-1 en 9b-2 die al in de bestanden stond, kwam uit een eerdere,
+onderbroken sessie van Claude zelf (geen parallel werk van iemand anders). Het is gecontroleerd.
+
+============================================================
+1. HUIDIGE STAND
+============================================================
+- Fase A/B: afgerond en getest.
+- 9a (setTapped-refactor, Exhaust via effect zet Slumber-teller): gebouwd, getest OK (smoke K).
+- 9a-bis (summoning sickness): gebouwd, getest OK (smoke L).
+- 9b-1 (Exhaust/Ready op self/chosen): gecontroleerd; tests + smoke M bestaan; smoke M NOG NIET bevestigd.
+- 9b-2 (AddCounter/RemoveCounter, counterColor): gecontroleerd; tests + smoke N bestaan; NIET in de
+  browser getest.
+- VOORAF in de nieuwe sessie (door de auteur): `node tests-effecten.js` draaien en smoke M en N doorlopen.
+  Pas als die groen zijn, starten met 9b-3.
+
+============================================================
+2. BESLISSINGEN DIE BLIJVEN GELDEN
+============================================================
+Algemeen:
+ (1) Effecten op de eigen kant: DIRECT. Alleen effecten met een slachtoffer (Damage/Inflict) via stack-entry.
+ (2) OnEnterPlay/OnLeavePlay alleen via AUTOMATISCHE bronnen. Handmatig slepen, zoom-knoppen
+     (Terug naar hand/Discard/Banish), handmatige tellerknoppen en pre-game Destiny-plaatsing vuren niets.
+ (3) StartOfTurn na het trekken van 5; EndOfTurn en directe rest-effecten na hand-limit-discard.
+ (4) Actiekosten tellen als bestede actie (Slumber tikt).
+ (5) Heal valt buiten scope.
+ END TURN-volgorde: Rest -> rest-Inflict (stack) -> hand-limit/Burdens -> OnDiscard -> directe
+ rest-effecten -> EndOfTurn -> beurtwissel -> trek 5 -> StartOfTurn.
+ Dispatch-volgorde per trigger-moment: directe acties (Draw/GainAction/GainSpite) -> kaart-effecten
+ (Exhaust/Ready/AddCounter/RemoveCounter, straks ReturnToHand/Banish) -> Damage -> Inflict.
+ fireDirectTriggerEffects = fireDirectActionEffects + fireCardTriggerEffects.
+
+Fase C (C1-C9):
+ C1 ModifyShield: waarde mag negatief, shield >= 0; wordt als LAATSTE gebouwd, wacht op het
+    damage/shield-model (takeStackDamage trekt nu geen shield af).
+ C2 Ontbrekend/niet-in-play doelwit: log "niet toegepast" (type card-skip), geen crash, geen fallback.
+ C3 Exhaust op exhausted / Ready op ready: geen wijziging + log (tap-skip).
+ C4 Exhaust via effect zet Slumber-teller zoals de knop (setTapped).
+ C5 Banish/ReturnToHand "chosen": op eigen EN vijandelijke kaarten, via targetRef, alleen bij OnResolve.
+ C6 Banish alleen op Manifestation/Hex/andere permanents; Destiny overslaan met log tot er een
+    Destiny-banish-regel bestaat.
+ C7 ReturnToHand/Banish DIRECT (geen stack-entry; OnResolve impliceert al een reactievenster;
+    kan later stack-entry worden).
+ C8 Een enkele checkbox `cardEffects`.
+ C9 De handelende client past toe + saveArena synchroniseert (auteur denkt mogelijk aan een
+    hosting-browser-architectuur voor de tegenspeler).
+Summoning sickness: kaart met Slumber>0 komt exhausted in spel met witte teller = Slumber, enkel in
+ resolveStackTop (handmatig slepen/pre-game Destiny niet). Slumber 0 = ready. Exhausted kaart kan
+ ExhaustSelf niet betalen (canPayCosts).
+9b-2: AddCounter zwart = schade via addCounterToInstance(auto:true) incl. Vulnerable/dood + OnLeavePlay
+ eenmalig, geen zone/damageType-check; RemoveCounter zwart = heal; per-teller-lus stopt als kaart sterft;
+ counterColor verplicht (ontbreekt -> skip-log + waarschuwing); wit op ready kaart doet niets;
+ RemoveCounter wit tot 0 maakt niet vanzelf ready; nooit onder 0 (log "niets te verwijderen");
+ AddCounter zwart moet zich in Fase D voor OnDamaged gedragen als Damage.
+Mobiele editor (Wizards_Mobile.html, sw-mobile.js): NIET nodig; Android dient alleen om kaarten te raadplegen.
+
+============================================================
+3. CODEWIJZERS (arena.html, regelnummers bij benadering)
+============================================================
+- ZONE_LABELS: ~1312.
+- performCardMove(srcPlayerIdx, srcZone, instanceId, destPlayerIdx, destZone): ~1344. Verwijdert de
+  instantie, pusht naar bestemming (deck/deck-bottom/overig), zet tapped=false en counters=freshCounters()
+  tenzij de kaart in play blijft, logt "<kaart>: <van> -> <naar>" (type "move"), en doet ALTIJD
+  saveArena(); renderArenaBoard() (geen silent-optie). Krijgt GEEN hooks (besluit 2).
+  Aanroepers: drag/drop ~1498, ~1528, ~1536; dood in addCounterToInstance ~1572; zoom-knoppen
+  Hand/Discard/Banish ~1760/~1764/~1768 (knop zoom-banish-btn ~1719).
+- addCounterToInstance(playerIdx, zone, instanceId, color, opts): opts.auto -> bij dood
+  fireLeavePlayEffects(card, playerIdx) na verplaatsing naar discard (~1574).
+- fireLeavePlayEffects(card, ownerIdx): ~2307 (direct/Damage/Inflict voor "OnLeavePlay", settingKey
+  "enterPlayEffects"). fireEnterPlayEffects(card, ownerIdx, sourceRef) ernaast.
+- CARD_ACTION_HANDLERS (~2167 e.v.): { Exhaust, Ready, AddCounter, RemoveCounter } met applyCounterEffect;
+  fireCardTriggerEffects(triggerName, settingKey, card, ownerIdx, ctx) controleert arena.settings[settingKey]
+  EN arena.settings.cardEffects, lost doelwit op via resolveCardTargetRef, logt card-skip, roept handler
+  (res.ref, label, eff) aan. 9b-3 voegt hier ReturnToHand en Banish toe.
+- resolveStackTop: na de "resolvet"-log: summoning-sickness-blok, daarna fireOnResolveEffects(card,
+  casterIdx, targetRef, sourceRef) en fireEnterPlayEffects.
+- Setting-label voor `cardEffects`: ~3247 ("... later Counter/Banish/ReturnToHand") -> bijwerken bij 9b-3.
+- banishForWizardDamage(player, damageType, amount) in game-mechanics.js: bestaand automatisch
+  banish-pad (relevant voor OnBanish in Fase D).
+game-mechanics.js: tickSlumberOnce -> {tickedCount, readiedCount, readied}; setTappedState(ci, card,
+ tapped, slumberApplies) -> {changed, tapped, white}; adjustCounterState(ci, color, delta) -> {changed,
+ before, after} (precies EEN definitie); resolveCardTargetRef(effect, ctx) -> {ref|null, reason}
+ (self = bron in play-zone; chosen alleen bij OnResolve, targetRef.kind==="card", in-play zone).
+card-data.js: COUNTER_COLOR_LIST; normalizeEffect; EFFECT_SUPPORT (triggers, cardActions
+ ["Exhaust","Ready","AddCounter","RemoveCounter"], cardTargets ["self","chosen"]); effectIssues;
+ effectTargetNote. 9b-3 moet "ReturnToHand","Banish" toevoegen aan cardActions en aan de triggers waar
+ de bron in play is (OnEnterPlay/OnResolve/StartOfTurn/EndOfTurn/OnRest/OnOpponentRest).
+cardbuilder.html: heeft .ef-countercolor; controleer dat Banish/ReturnToHand geen extra velden tonen
+ (value niet van toepassing; target beperkt tot self/chosen via effectTargetNote).
+
+============================================================
+4. STAP 9b-3 — TE STELLEN MINI-SPEC (VRAGEN + VOORSTEL)
+============================================================
+Dit is de meest precaire stap. Stel deze vragen eerst aan de auteur, met een voorstel per vraag:
+ Q1 Bestemming ReturnToHand op een vijandelijke kaart: naar de hand van de EIGENAAR van de kaart.
+    (voorstel: ja)
+ Q2 "self" bij ReturnToHand/Banish: bron moet in play zijn; daarna verlaat de kaart het spel en worden
+    resterende effecten van die kaart overgeslagen met log "doelwit ligt niet meer in spel".
+ Q3 OnLeavePlay: vuurt eenmalig bij ReturnToHand/Banish via een effect (spec 9.2 punt 4), eigenaar =
+    eigenaar van de kaart. performCardMove zelf blijft hook-vrij; de hook zit in de handler.
+    Let op dubbel vuren (dood via AddCounter vuurt al zelf).
+ Q4 performCardMove doet altijd saveArena+render: accepteer per-aanroep save, of voeg een
+    silent-variant toe (voorstel: opts.silent, zoals bij setTapped). Dit is het risicopunt.
+ Q5 Destiny (C6): overslaan met log "Destiny kan nog niet gebanisht worden" (type card-skip).
+    Andere types (Wizard, Burden): voorstel — Wizard overslaan met log; Burden toegestaan voor
+    ReturnToHand? Laat de auteur kiezen.
+ Q6 OnBanish blijft ONGEVUURD tot Fase D (ook bij Banish via effect).
+ Q7 Gebruik van `value`: niet van toepassing; effectIssues geeft geen waarschuwing voor value 0.
+ Q8 Volgorde in dispatch: na Exhaust/Ready/AddCounter/RemoveCounter, voor Damage/Inflict.
+ Q9 Checkbox: blijft `cardEffects`; label bijwerken.
+Na antwoord: bouwen -> tests aanpassen -> smoke-sectie O schrijven -> wachten op "geslaagd".
+
+Bestaande tests die moeten wijzigen bij 9b-3 (tests-effecten.js): asserts die Banish, ReturnToHand en
+ModifyShield als "nog niet geimplementeerd" markeren; "Banish bij OnEnterPlay/OnLeavePlay nog
+gemarkeerd"; "ability: Banish gemarkeerd". ModifyShield blijft ongeimplementeerd.
+
+Smoke-sectie O (nieuw) zou moeten dekken: ReturnToHand self/chosen (eigen + vijand), Banish
+self/chosen, Destiny-skip, doelwit weg, OnLeavePlay eenmalig, checkbox uit -> niets, stack/zichtbaarheid
+na save, geen dubbele logregels.
+
+============================================================
+5. DAARNA
+============================================================
+- ModifyShield (laatst; wacht op damage/shield-model).
+- Fase D: OnExhausted/OnReady/OnDamaged/OnBanish (D1-D5; AddCounter zwart telt als damage -> OnDamaged).
+- Stap 11: Architectuur.txt, TO DO.txt, commentaarblok bij EFFECT_SUPPORT, spec-STATUS "afgerond".
+- Zie voor details van Fase D en backlog het oudere "Effecten-vervolg (Fase C, D en afronding).txt".

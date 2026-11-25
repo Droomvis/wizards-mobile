@@ -1,0 +1,239 @@
+Effecten-vervolg: Fase C, Fase D en afronding
+=============================================
+Overdracht-document voor een nieuwe sessie. Opgesteld 2026-11-22.
+Hoort bij: Effecten-specificatie.txt (het grote plan + VOORTGANG-log) en
+Smoke-testlijst (Effecten).txt. Lees die twee eerst; dit document zegt wat er nog
+te doen is en in welke volgorde.
+
+
+0. WERKAFSPRAKEN (gelden onverminderd)
+--------------------------------------
+- Stap voor stap, SPEC EERST: per fase eerst een korte mini-spec met expliciete
+  vragen en een voorstel per vraag; pas na antwoord van de auteur wordt gebouwd.
+- Na elke wijziging aan arena.html: smoke-testlijst bijwerken (nieuwe sectie) en de
+  auteur laat het in de browser testen. Wacht op "geslaagd" voor de volgende stap.
+- Pure functies met expliciete state horen in shared/game-mechanics.js met Node-tests
+  in tests-effecten.js (draai: `node tests-effecten.js` in development). arena.html
+  houdt de dunne wrappers (saveArena/renderArenaBoard/logAction).
+- EFFECT_SUPPORT in shared/card-data.js wordt met de hand bijgehouden; na elke stap
+  controleren dat de ⚠'s in de cardbuilder kloppen met wat de arena doet.
+- Architectuur.txt (en TO DO.txt) pas op het EINDE bijwerken, in een keer (Stap 11).
+  Tussendoor enkel Effecten-specificatie.txt (VOORTGANG) en EFFECT_SUPPORT.
+- Elke nieuwe automatische effectsoort krijgt een eigen vinkje in het tandwiel-menu
+  (default AAN), stil overslaan als hij uit staat; overgeslagen acties loggen een
+  reden (type "...-skip"), nooit stil falen.
+- Auteur spreekt Nederlands; houd documentatie, logregels en UI-teksten Nederlands.
+- Opmerking over de werkomgeving: kopiëren van bestanden van de computer naar de
+  sandbox faalde in de vorige sessie; bestanden werden gelezen en bewerkt via de
+  bestandstools. Sandbox-tests draaiden op gecondenseerde kopieën, dus laat de auteur
+  `node tests-effecten.js` altijd zelf draaien.
+
+
+1. STAND VAN ZAKEN (2026-11-22)
+-------------------------------
+Fase A en B zijn gebouwd; de auteur heeft Stap 0 t/m 7 in de browser bevestigd.
+Stap 8 is gebouwd maar NOG NIET getest.
+
+Gebouwd:
+- Stap 1-3: directe acties Draw/GainAction/GainSpite (fireDirectTriggerEffects +
+  DIRECT_ACTION_HANDLERS) bij OnResolve, OnDiscard, OnRest, OnOpponentRest.
+- Stap 4: StartOfTurn, EndOfTurn (na de hand-limiet), OnPlayed (bij het casten).
+  END TURN-volgorde nu: Rest -> rest-Inflict (stack) -> hand-limiet/Burdens ->
+  OnDiscard-effecten -> directe rest-effecten -> EndOfTurn -> beurtwissel -> 5 trekken
+  -> StartOfTurn.
+- Stap 6: payCosts/canPayCosts in activateMinionAttack (Spite, Action, SelfVulnerable,
+  ExhaustSelf; volgorde: Spite, Action met Slumber-tick, SelfVulnerable, ExhaustSelf
+  laatst); describeCosts; kost + uitgeschakelde knop in de zoom-overlay.
+- Stap 7: generieke activated abilities (niet-Attack): isAbility-stack-entry, knop per
+  ability in de zoom-overlay, kosten bij activatie, effect bij Resolve; ondersteund:
+  Draw, GainAction, GainSpite, Damage, Inflict met targets controller/ownActiveWizard/
+  opponent/opponentActiveWizard (+ opponentZone voor Damage). Setting abilityEffects.
+- Stap 8: OnEnterPlay (resolveStackTop, enkel in-play bestemming) en OnLeavePlay
+  (enkel dood door effect-schade, addCounterToInstance opts.auto). Setting
+  enterPlayEffects. Smoke-testlijst sectie J is nog niet doorlopen.
+
+Te doen door de auteur voor de nieuwe sessie begint:
+- `node tests-effecten.js` draaien (laatste bevestigde stand: 69/69 na Stap 2; sindsdien
+  zijn er tests bijgekomen, ook voor Stap 6-8).
+- Smoke-testlijst sectie J (Stap 8) doorlopen en melden.
+- Sectie C en G (Stap 3/4) zijn volgens het gesprek getest; Stap 6 en 7 geslaagd.
+
+Belangrijke beslissingen die blijven gelden (details: Effecten-specificatie sectie 3/4):
+1. Eigen-kant-effecten (Draw/Gain) zijn DIRECT, zonder stack-entry; enkel effecten met
+   een slachtoffer (Damage/Inflict) gebruiken een stack-entry.
+2. OnEnterPlay/OnLeavePlay enkel via AUTOMATISCHE bronnen. Handmatig slepen, de
+   zoom-knoppen (Terug naar hand/Discard/Banish), de handmatige teller-knoppen en de
+   pre-game Destiny-plaatsing vuren NIETS.
+3. StartOfTurn na het trekken van de 5 kaarten; EndOfTurn en directe rest-effecten NA
+   de automatische hand-discard, zodat getrokken kaarten in de hand blijven tijdens de
+   beurt van de tegenstander.
+4. Een Action-cost telt als een besteedde actie (Slumber tikt af).
+5. Heal blijft buiten scope.
+Volgorde bij hetzelfde trigger-moment: eerst directe effecten, dan Damage, dan Inflict.
+
+
+2. NOG TE DOEN: OVERZICHT
+-------------------------
+ a. (Auteur) Stap 8 browsertest, node-tests draaien.
+ b. FASE C, Stap 9: setTapped-refactor, dan de acties Exhaust, Ready, ReturnToHand,
+    Banish, ModifyShield, AddCounter, RemoveCounter.
+ c. FASE D, Stap 10: reactieve triggers OnExhausted, OnReady, OnDamaged, OnBanish.
+ d. Mobiele editor controleren (Wizards_Mobile.html) en CACHE_NAME in sw-mobile.js.
+ e. Stap 11: documentatie in een keer (Architectuur.txt, TO DO.txt,
+    EFFECT_SUPPORT-commentaar, spec).
+ f. Optioneel/backlog (zie sectie 6).
+
+
+3. FASE C - Stap 9 (nog te specificeren; voorstel)
+---------------------------------------------------
+Context: een kaart bevat nu tap/ready-logica op TWEE plekken: inline in de click-handler
+van de Exhaust/Ready-knop in de zoom-overlay (arena.html, rond renderContent van
+arenaZoomOverlay, knop id zoom-tap-btn) en in payCosts (game-mechanics.js, ExhaustSelf).
+Het Slumber-gedrag is: exhaust => ci.tapped = true en ci.counters.white = card.slumber;
+ready => ci.tapped = false (Slumber telt af via tickSlumberOnce bij elke besteedde
+actie). Controleer de exacte handler-code in arena.html voor je refactort.
+
+9.0 Mini-spec schrijven en vragen voorleggen (zie 9.3) VOOR er gebouwd wordt.
+
+9.1 Stap 9a - setTapped-refactor (pure refactor, geen gedragswijziging)
+- Nieuwe pure functie in game-mechanics.js, bv. setTappedState(ci, card, tapped) die
+  tapped en de witte teller zet zoals nu (exhaust: white = card.slumber || 0;
+  ready: tapped=false, white behouden of 0: CONTROLEER wat de bestaande handler doet
+  en neem dat letterlijk over). Node-test met de bestaande gedragingen.
+- arena.html: wrapper setTapped(playerIdx, zone, instanceId, tapped) (saveArena +
+  render + logAction) gebruikt door de zoom-handler. payCosts mag de pure functie
+  hergebruiken (regressie: tests voor payCosts moeten ongewijzigd slagen).
+- Fase D heeft later nodig dat tickSlumberOnce teruggeeft WELKE kaarten ready werden
+  (voor OnReady). Nu al meenemen of apart doen in Stap 10; besluit in de mini-spec.
+- Na 9a: smoke-test Stap 0-lijst (exhaust/ready-knop, Minion-Attack, Action-kost met
+  Slumber, spendAction). De auteur test; pas daarna 9b.
+
+9.2 Stap 9b - de acties, een voor een (elk eigen commit-moment, eigen smoke-sectie)
+Volgorde van laag naar hoog risico:
+  1. ModifyShield: schild per type (body/mind/soul) aanpassen op een speler
+     (adjustCounter-achtig). Datamodel: normalizeEffect bewaart damageType nu enkel bij
+     Damage; uitbreiden zodat ModifyShield het ook bewaart. Controleer in
+     cardbuilder.html of het waarde-veld een negatieve waarde toelaat. Let op: de arena
+     gebruikt het schild nog nergens bij het nemen van schade (takeStackDamage trekt
+     NIETS af; bekend gat, expliciet buiten scope). Vraag of ModifyShield dan al zinvol is.
+  2. Exhaust / Ready: target "self" (bron-kaart) en "chosen" (OnResolve, via targetRef).
+     Gebruikt setTapped (9a).
+  3. AddCounter / RemoveCounter: nieuw effectveld counterColor ("white"/"black") alleen
+     bij deze twee acties; addCounterToInstance/removeCounterFromInstance gebruiken.
+     Let op: AddCounter black op een Vulnerable kaart doodt haar (bestaande regel); dan
+     moet OnLeavePlay-hook mee (auto:true).
+  4. ReturnToHand en Banish: via performCardMove. performCardMove zelf krijgt GEEN
+     hooks (besluit 2). Wel moeten deze automatische paden OnLeavePlay afvuren als de
+     kaart uit een in-play zone vertrekt (fireLeavePlayEffects bestaat al).
+Elke actie: EFFECT_SUPPORT.triggers/targets bijwerken, effectIssues/effectTargetNote,
+tests, arena-hook, smoke-sectie.
+
+9.3 Te beslissen in de mini-spec van Fase C (met voorstel)
+ C1. Richting/teken van de waarde bij ModifyShield (min/plus).
+     VOORSTEL: waarde mag negatief zijn; schild kan niet onder 0.
+ C2. Wat als het doelwit (self/chosen) niet meer bestaat of niet in play ligt?
+     VOORSTEL: logregel "niet toegepast", geen crash, geen fallback.
+ C3. Exhaust/Ready op een al exhausted/ready kaart.
+     VOORSTEL: geen wijziging, logregel (geen fout).
+ C4. Exhaust door een effect: zet het ook de Slumber-teller zoals de knop?
+     VOORSTEL: ja, exact zoals de knop (via setTapped).
+ C5. Banish/ReturnToHand op "chosen": toegestaan op eigen EN vijandelijke kaarten?
+     VOORSTEL: ja, met de bestaande doelwit-keuze bij het casten (targetRef), enkel
+     bij OnResolve (zoals Damage chosen).
+ C6. Banish van een Wizard-kaart of Destiny (Destiny-banish-regel staat buiten scope,
+     TO DO Thema 2): VOORSTEL: Banish enkel op Manifestation/Hex/andere permanenten,
+     Destiny overslaan met logregel tot die regel bestaat.
+ C7. Moeten ReturnToHand/Banish via een stack-entry (slachtoffer-effect) of direct?
+     Het zijn effecten met een slachtoffer wanneer het doelwit van de tegenstander is.
+     VOORSTEL: voorlopig DIRECT (eenvoudig), met een expliciete notitie dat dit later
+     een stack-entry kan worden als de playtest dat vraagt. Leg dit EXPLICIET aan de
+     auteur voor: het weegt zwaarder dan bij Draw.
+ C8. Settings: een vinkje "Kaart-effecten (Exhaust/Ready/Counter/Banish/ReturnToHand)"
+     of per actie? VOORSTEL: een gezamenlijk vinkje cardEffects.
+ C9. Multiplayer: effecten op kaarten van de andere speler worden door de client die de
+     gebeurtenis uitvoert toegepast en via saveArena gesynchroniseerd (zoals nu bij
+     Damage op een permanent). Bevestigen dat dat voor Banish/ReturnToHand genoeg is.
+Gebruik AskUserQuestion of een korte lijst en laat de auteur antwoorden.
+
+
+4. FASE D - Stap 10 (eigen mini-spec eerst)
+-------------------------------------------
+Reactieve triggers: OnExhausted, OnReady, OnDamaged, OnBanish. Dit zijn triggers op
+gebeurtenissen die al in andere code gebeuren, dus het risico zit in dubbel vuren en in
+herhaling/lussen (een effect dat zelf weer een trigger veroorzaakt).
+Plekken (uit de inventarisatie, controleer actuele code):
+- OnExhausted / OnReady: via setTapped (9a). OnReady ook voor kaarten die ready worden
+  door tickSlumberOnce; die functie moet dan teruggeven welke kaarten.
+- OnDamaged: takeStackDamage (schade aan een Wizard) en permanente schade
+  (addCounterToInstance, enkel met opts.auto of ook handmatig? zie vraag D2).
+- OnBanish: de automatische banish-paden (banishForWizardDamage, nieuwe Banish-actie).
+Vragen om voor te leggen (met voorstel):
+ D1. Lussen: mag een trigger-effect zelf dezelfde trigger veroorzaken (Exhaust-effect
+     bij OnExhausted)? VOORSTEL: een diepte-limiet van 1 (een door een trigger
+     veroorzaakte gebeurtenis vuurt geen reactieve triggers), met logregel.
+ D2. Telt handmatig tappen/ready/schade (zoom-knoppen) mee? VOORSTEL: nee, zelfde regel
+     als besluit 2; enkel automatische bronnen.
+ D3. Op wie vuurt OnDamaged: de gewonde kaart/Wizard, of kaarten die "gewond zijn"
+     bekijken? VOORSTEL: de kaart die de schade krijgt (eigen trigger), Wizard-schade
+     vuurt voor Wizard-kaart/permanenten met die trigger NIET tot de auteur anders zegt.
+ D4. Volgorde t.o.v. OnLeavePlay bij dodelijke schade. VOORSTEL: OnDamaged eerst, dan
+     OnLeavePlay.
+ D5. Setting: reactiveEffects (default AAN).
+
+
+5. MOBIELE EDITOR EN ARTEFACTEN
+-------------------------------
+- Wizards_Mobile.html heeft een eigen effecten-editor (TO DO Thema 3). Controleer of de
+  keuzelijsten (acties, triggers, targets, ⚠-markering) uit de gedeelde lijsten komen of
+  apart gedupliceerd zijn. Nieuwe velden uit Fase C (counterColor, damageType bij
+  ModifyShield) moeten daar apart bij tot de card-editor.js-refactor gebeurd is.
+- Bij elke wijziging aan de mobiele shell: CACHE_NAME in sw-mobile.js ophogen.
+- GitWiz/GitPub (publicatie) blijft ongewijzigd tot de playtest-groep weer samenkomt
+  (TO DO Thema 1). development-specs worden niet mee gepubliceerd.
+
+
+6. BACKLOG / BEWUST BUITEN SCOPE
+--------------------------------
+- Heal, Search, ModifyStat, de condition-parser (condition vuurt altijd; ⚠ blijft),
+  meervoudige targets (allInPlay, allOwnInPlay, allOpponentInPlay), de Discard-cost en
+  de actie Discard (speler moet kaarten kunnen kiezen; openArenaChoice kan er een),
+  "chosen" bij een activated ability (doelwit-keuze bij activatie), Flying, de
+  Destiny-banish-regel, het blokkeer/schild/banish-model voor Attack-schade.
+- Een "eenmaal per beurt"-beperking voor abilities bestaat niet in het datamodel.
+- Damage/Inflict bij StartOfTurn/EndOfTurn/OnPlayed: bewust niet ondersteund (blijft ⚠).
+- Het aantal vinkjes in het tandwiel-menu groeit (nu 15). Overweeg een groepering.
+- Draw bij OnResolve van een Incantation: de kaart ligt al in de discard en kan bij een
+  leeg deck zichzelf trekken (bewust zo gelaten).
+- OnPlayed vuurt ook als de kaart daarna door de tegenstander wordt "getegenspeld"
+  (er is geen counter-mechaniek).
+
+
+7. STAP 11 - DOCUMENTATIE (OP HET EINDE)
+----------------------------------------
+Een keer bijwerken, met datum en resultaat:
+- Architectuur.txt: loopt achter; de laatste entry is 2026-08-24. Ontbrekend: de
+  Interpreter-, Minion-Attack-, Inflict- en dit Effecten-traject (september-november),
+  inclusief: EFFECT_SUPPORT, fireDirectTriggerEffects/DIRECT_ACTION_HANDLERS,
+  fireTurnTriggers/fireOnPlayedEffects, de END TURN-volgorde (sectie 1), payCosts/
+  canPayCosts/describeCosts, de isAbility-stack-entry (resolveStackTop,
+  buildStackAbilityNode, activateAbility, resolveAbilityEntry), fireEnterPlayEffects/
+  fireLeavePlayEffects, alle nieuwe settings (directEffects, turnEffects,
+  playedEffects, abilityEffects, enterPlayEffects, + die uit Fase C/D) en de nieuwe pure
+  functies in game-mechanics.js (collectTurnTriggerSources, applyGain,
+  resolveAbilityTargetIdx, describeAbilityEffect).
+- TO DO.txt: Thema 2 (spelregel-motor) en Thema 3 (mobiele editor) bijwerken.
+- EFFECT_SUPPORT-commentaarblok in card-data.js actualiseren.
+- Effecten-specificatie.txt: STATUS bovenaan op "afgerond" met einddatum.
+
+
+8. AANBEVOLEN VOLGORDE VOOR DE NIEUWE SESSIE
+---------------------------------------------
+ 1. Lees Effecten-specificatie.txt (VOORTGANG onderaan sectie 0), dit document en de
+    smoke-lijst. Vraag de auteur naar de uitkomst van `node tests-effecten.js` en
+    sectie J (Stap 8).
+ 2. Schrijf de mini-spec voor Fase C (punt 9.3 in sectie 3 als vragenlijst) in een nieuw bestand of
+    als nieuwe sectie in Effecten-specificatie.txt; laat de auteur antwoorden.
+ 3. Bouw 9a (refactor), laat testen. Bouw 9b per actie, laat telkens testen.
+ 4. Mini-spec Fase D (sectie 4), bouwen, testen.
+ 5. Mobiele editor controleren (sectie 5).
+ 6. Stap 11 documentatie.

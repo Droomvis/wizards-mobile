@@ -884,6 +884,9 @@
     SelfVulnerable: "Maak jezelf Vulnerable/Confused/Forlorn"
   };
   const COST_TYPE_HAS_VALUE = { Spite: true, Action: true, Discard: true };
+  // Tellerkleur bij AddCounter/RemoveCounter (Stap 9b-2).
+  const COUNTER_COLOR_LABELS = { white: "Wit (Time Counter)", black: "Zwart (damage)" };
+  const isCounterAction = (a) => a === "AddCounter" || a === "RemoveCounter";
 
   function buildCostRowHtml(cost, idx){
     return `
@@ -936,11 +939,18 @@
             ${collection.filter(c => c.type === "Burden").map(c => `<option value="${escapeHtml(c.id)}"${eff.burdenId === c.id ? " selected" : ""}>${escapeHtml(c.name || "(naamloos)")}</option>`).join("")}
           </select>
         </div>
-        <div class="field ef-damagetype-field" style="${(eff.action === "Damage" && !(isActivated && eff.isAttack)) ? "" : "display:none;"}">
-          <label>Schadetype</label>
+        <div class="field ef-damagetype-field" style="${((eff.action === "Damage" && !(isActivated && eff.isAttack)) || eff.action === "ModifyShield") ? "" : "display:none;"}">
+          <label class="ef-damagetype-label">${eff.action === "ModifyShield" ? "Schild" : "Schadetype"}</label>
           <select class="ef-damagetype">
             <option value="">— kies —</option>
             ${DAMAGE_TYPE_LIST.map(t => `<option value="${t}"${eff.damageType === t ? " selected" : ""}>${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field ef-countercolor-field" style="${isCounterAction(eff.action) ? "" : "display:none;"}">
+          <label>Tellerkleur</label>
+          <select class="ef-countercolor">
+            <option value="">— kies —</option>
+            ${COUNTER_COLOR_LIST.map(c => `<option value="${c}"${eff.counterColor === c ? " selected" : ""}>${COUNTER_COLOR_LABELS[c] || c}</option>`).join("")}
           </select>
         </div>
         <div class="field">
@@ -950,7 +960,7 @@
           </select>
         </div>
         <div class="field">
-          <label class="ef-value-label">${eff.action === "Inflict" ? "Aantal" : "Waarde"}</label>
+          <label class="ef-value-label">${eff.action === "ModifyShield" ? "Waarde (negatief = verlagen)" : ((eff.action === "Inflict" || isCounterAction(eff.action)) ? "Aantal" : "Waarde")}</label>
           <input type="number" class="ef-value" value="${eff.value || 0}" step="1">
         </div>
       </div>
@@ -982,16 +992,22 @@
     // waar het type uit de zone van de kaart volgt).
     const refreshDamageTypeField = () => {
       const isDmg = row.querySelector(".ef-action").value === "Damage";
+      const isShield = row.querySelector(".ef-action").value === "ModifyShield";
       const kindActivated = row.querySelector(".ef-kind").value === "activated";
       const atkEl = row.querySelector(".ef-is-attack");
       const isAtk = kindActivated && !!(atkEl && atkEl.checked);
-      row.querySelector(".ef-damagetype-field").style.display = (isDmg && !isAtk) ? "" : "none";
+      row.querySelector(".ef-damagetype-field").style.display = ((isDmg && !isAtk) || isShield) ? "" : "none";
+      row.querySelector(".ef-damagetype-label").textContent = isShield ? "Schild" : "Schadetype";
       // Inflict: Burden-keuze tonen; Waarde heet dan Aantal (default 1).
-      const isInfl = row.querySelector(".ef-action").value === "Inflict";
+      const actionVal = row.querySelector(".ef-action").value;
+      const isInfl = actionVal === "Inflict";
+      const isCnt = isCounterAction(actionVal);
       row.querySelector(".ef-burden-field").style.display = isInfl ? "" : "none";
-      row.querySelector(".ef-value-label").textContent = isInfl ? "Aantal" : "Waarde";
+      // AddCounter/RemoveCounter: tellerkleur tonen; Waarde heet dan Aantal (default 1), net als bij Inflict.
+      row.querySelector(".ef-countercolor-field").style.display = isCnt ? "" : "none";
+      row.querySelector(".ef-value-label").textContent = isShield ? "Waarde (negatief = verlagen)" : ((isInfl || isCnt) ? "Aantal" : "Waarde");
       const valEl = row.querySelector(".ef-value");
-      if (isInfl && !(Number(valEl.value) > 0)){
+      if ((isInfl || isCnt) && !(Number(valEl.value) > 0)){
         valEl.value = 1;
         valEl.dispatchEvent(new Event("input", { bubbles: true }));
       }
@@ -1097,9 +1113,11 @@
       const isAttackEl = row.querySelector(".ef-is-attack");
       eff.isAttack = isAttackEl ? isAttackEl.checked : false;
       const dmgTypeEl = row.querySelector(".ef-damagetype");
-      eff.damageType = (eff.action === "Damage" && !(eff.kind === "activated" && eff.isAttack) && dmgTypeEl) ? dmgTypeEl.value : "";
+      eff.damageType = ((eff.action === "Damage" && !(eff.kind === "activated" && eff.isAttack)) || eff.action === "ModifyShield") && dmgTypeEl ? dmgTypeEl.value : "";
       const burdenEl = row.querySelector(".ef-burden");
       eff.burdenId = (eff.action === "Inflict" && burdenEl) ? burdenEl.value : "";
+      const counterColorEl = row.querySelector(".ef-countercolor");
+      eff.counterColor = (isCounterAction(eff.action) && counterColorEl) ? counterColorEl.value : "";
       if (eff.kind === "activated"){
         eff.costs = Array.from(row.querySelectorAll(".ef-costs-list .cost-row")).map(costRow => normalizeCostEntry({
           type: costRow.querySelector(".cost-type").value,

@@ -13,7 +13,7 @@
    gecachete bestanden, anders blijft een oude versie hangen bij offline gebruik.
    ========================================================================= */
 
-const CACHE_NAME = "wizards-mobile-shell-v2";
+const CACHE_NAME = "wizards-mobile-shell-v3"; // v3 (2026-11-24): effecten-editor met schildtype/tellerkleur/Burden en ⚠; card-data.js (EFFECT_SUPPORT) gewijzigd
 const SHELL_FILES = [
   "./Wizards_Mobile.html",
   "./manifest.webmanifest",

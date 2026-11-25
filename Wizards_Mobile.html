@@ -307,6 +307,9 @@
   .effect-row-head button{ background:none; border:1px solid var(--border); color: var(--ink-dim); cursor:pointer; font-size:11.5px; padding:5px 10px; border-radius:6px; }
   .effect-fields{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px; }
   .effect-fields .field{ margin-bottom:0; }
+  .effect-row [hidden]{ display:none !important; }
+  .effect-issues{ margin-bottom:10px; font-size:12.5px; line-height:1.4; color:#e0a040; }
+  .effect-note{ margin-bottom:10px; font-size:12.5px; line-height:1.4; color: var(--ink-dim); }
   .effect-fields select, .effect-fields input{ font-size:14px; padding:10px; min-height:42px; }
   .automation-hint{ font-size:12px; color: var(--ink-dim); margin-bottom:12px; line-height:1.5; }
 
@@ -1252,7 +1255,7 @@
         <button type="button" class="btn-remove-effect">Verwijder</button>
       </div>
       <div class="effect-fields">
-        <div class="field">
+        <div class="field ef-trigger-field">
           <label>Trigger</label>
           <select class="ef-trigger">
             <option value="">— geen —</option>
@@ -1273,21 +1276,70 @@
           </select>
         </div>
         <div class="field">
-          <label>Waarde</label>
+          <label class="ef-value-label">Waarde</label>
           <input type="number" class="ef-value" value="${eff.value || 0}" step="1" inputmode="numeric">
+        </div>
+        <div class="field ef-dt-field" hidden>
+          <label class="ef-dt-label">Schadetype</label>
+          <select class="ef-damagetype">
+            <option value="">— kies —</option>
+            ${DAMAGE_TYPE_LIST.map(t => `<option value="${t}"${eff.damageType === t ? " selected" : ""}>${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field ef-cc-field" hidden>
+          <label>Tellerkleur</label>
+          <select class="ef-countercolor">
+            <option value="">— kies —</option>
+            ${COUNTER_COLOR_LIST.map(c => `<option value="${c}"${eff.counterColor === c ? " selected" : ""}>${c === "white" ? "Wit (Time)" : "Zwart (damage)"}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field ef-burden-field" hidden>
+          <label>Burden</label>
+          <select class="ef-burden">${burdenOptionsHtml(eff.burdenId)}</select>
         </div>
       </div>
       <div class="field">
         <label>Conditie (vrije tekst)</label>
         <input type="text" class="ef-condition" value="${escapeHtml(eff.condition || "")}" placeholder="bv. bodyShield == 0">
       </div>
-      <div class="effect-cost-row">
-        <label>🔥 Extra Spite-kost <input type="number" class="ef-cost-spite" min="0" step="1" value="${(eff.cost && eff.cost.spite) || 0}" inputmode="numeric"></label>
-        <label><input type="checkbox" class="ef-cost-exhaust" ${(eff.cost && eff.cost.exhaustSelf) ? "checked" : ""}> Kost: exhaust deze kaart</label>
-      </div>
+      <div class="effect-note" hidden>Activated ability: kosten, Attack en trigger bewerk je in de Kaartbuilder op de computer; hier kun je actie, target, waarde en de extra velden aanpassen.</div>
+      <div class="effect-issues" hidden></div>
     `;
     row.querySelector(".btn-remove-effect").addEventListener("click", () => removeEffect(eff.id));
+    refreshEffectRowUi(row, eff);
     return row;
+  }
+
+  // Burden-keuzelijst voor de actie Inflict (de collectie, enkel kaarten van het type Burden). Een opgeslagen id dat
+  // niet meer bestaat blijft zichtbaar, zodat het niet stilletjes verdwijnt.
+  function burdenOptionsHtml(selectedId){
+    const burdens = collection.filter(c => c && c.type === "Burden").sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    let html = `<option value="">— kies —</option>`;
+    if (selectedId && !burdens.some(b => b.id === selectedId)) html += `<option value="${escapeHtml(selectedId)}" selected>(verwijderde Burden)</option>`;
+    html += burdens.map(b => `<option value="${escapeHtml(b.id)}"${b.id === selectedId ? " selected" : ""}>${escapeHtml(b.name || "(naamloos)")}</option>`).join("");
+    return html;
+  }
+
+  // Toont/verbergt de velden die bij de gekozen actie horen (zelfde regels als cardbuilder.html) en de ⚠-lijst uit
+  // effectIssues() (shared/card-data.js, dus altijd gelijk aan de arena-ondersteuning).
+  function refreshEffectRowUi(row, eff){
+    const isAttack = eff.kind === "activated" && eff.isAttack;
+    const show = (sel, on) => { const f = row.querySelector(sel); if (f) f.hidden = !on; };
+    show(".ef-trigger-field", eff.kind !== "activated");
+    show(".ef-dt-field", (eff.action === "Damage" && !isAttack) || eff.action === "ModifyShield");
+    show(".ef-cc-field", eff.action === "AddCounter" || eff.action === "RemoveCounter");
+    show(".ef-burden-field", eff.action === "Inflict");
+    show(".effect-note", eff.kind === "activated");
+    const dtLabel = row.querySelector(".ef-dt-label");
+    if (dtLabel) dtLabel.textContent = eff.action === "ModifyShield" ? "Schildtype" : "Schadetype";
+    const vl = row.querySelector(".ef-value-label");
+    if (vl) vl.textContent = eff.action === "ModifyShield" ? "Waarde (negatief = verlagen)" : (eff.action === "Inflict" ? "Aantal" : "Waarde");
+    const issues = effectIssues(eff);
+    const el = row.querySelector(".effect-issues");
+    if (el){
+      el.hidden = issues.length === 0;
+      el.innerHTML = issues.map(i => `<div>⚠ ${escapeHtml(i)}</div>`).join("");
+    }
   }
 
   function addEffect(){
@@ -1316,10 +1368,14 @@
       eff.target = row.querySelector(".ef-target").value;
       eff.value = toNum(row.querySelector(".ef-value").value, 0);
       eff.condition = row.querySelector(".ef-condition").value;
-      eff.cost = {
-        spite: toNum(row.querySelector(".ef-cost-spite").value, 0),
-        exhaustSelf: row.querySelector(".ef-cost-exhaust").checked
-      };
+      eff.damageType = row.querySelector(".ef-damagetype").value;
+      eff.counterColor = row.querySelector(".ef-countercolor").value;
+      eff.burdenId = row.querySelector(".ef-burden").value;
+      // Opschonen volgens het gedeelde datamodel: velden die niet bij de actie horen worden leeg, kind/costs/isAttack
+      // van een activated ability blijven behouden. (Het oude `eff.cost`-object bestaat niet meer; costs[] staat op de
+      // desktop-Kaartbuilder.)
+      Object.assign(eff, normalizeEffect(eff));
+      refreshEffectRowUi(row, eff);
     });
   }
 
