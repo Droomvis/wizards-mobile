@@ -77,6 +77,23 @@
   }
   .draft-offer-slot:hover{ border-color: var(--gold); background: rgba(201,162,75,0.08); transform: translateY(-5px); }
   #draft-offer-empty{ color: var(--ink-dim); font-size:13.5px; }
+  .draft-offer-slot{ position:relative; }
+  .draft-edit-btn{
+    position:absolute; top:14px; right:14px; z-index:2;
+    width:26px; height:26px; border-radius:50%;
+    background: rgba(21,18,28,0.85); border:1px solid var(--gold);
+    color: var(--gold-soft); font-size:12px;
+    display:flex; align-items:center; justify-content:center;
+    opacity:0; transition: opacity .12s; cursor:pointer;
+  }
+  .draft-offer-slot:hover .draft-edit-btn{ opacity:1; }
+  .draft-edit-btn:hover{ background: rgba(21,18,28,1); }
+  .pick-edit-btn{
+    background:none; border:none; color: var(--ink-dim); cursor:pointer;
+    font-size:12px; padding:0 2px; opacity:0;
+  }
+  .pick-row:hover .pick-edit-btn{ opacity:1; }
+  .pick-edit-btn:hover{ color: var(--gold-soft); }
 
   /* ---------- Afsluitscherm ---------- */
   #draft-done p{ color: var(--ink-muted); font-size:14px; line-height:1.5; max-width:520px; }
@@ -281,6 +298,21 @@
     return `Burden ${step.burdenRound + 1} van ${BURDEN_ROUNDS}`;
   }
 
+  // Bewerk-knop (✎) zoals in de Collectie: opent de kaart in de Kaartbuilder, zonder te picken. Gaat via de shell
+  // (postMessage); geen effect als deze pagina standalone (niet ingebed) geopend is.
+  function buildEditButton(card, className){
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = className;
+    btn.title = "Bewerk in Kaartbuilder";
+    btn.textContent = "✎";
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      window.parent.postMessage({ type: "wizards:edit-card", cardId: card.id }, "*");
+    });
+    return btn;
+  }
+
   // ---------- Rendering ----------
   function showOnly(elId){
     ["draft-start", "draft-offer-screen", "draft-done"].forEach(id => {
@@ -315,6 +347,7 @@
       slot.className = "draft-offer-slot";
       slot.innerHTML = buildCardFrameHtml(card);
       slot.addEventListener("click", () => choose(card, step));
+      slot.appendChild(buildEditButton(card, "draft-edit-btn"));
       offerWrap.appendChild(slot);
     });
 
@@ -349,6 +382,7 @@
       name.textContent = card.name || "(naamloze kaart)";
       li.appendChild(swatch);
       li.appendChild(name);
+      li.appendChild(buildEditButton(card, "pick-edit-btn"));
       li.addEventListener("mouseenter", () => showCardPreview(li, card));
       li.addEventListener("mouseleave", hideCardPreview);
       return li;

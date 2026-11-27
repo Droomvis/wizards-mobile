@@ -221,6 +221,14 @@
         <select id="col-filter-status"><option value="">Alle</option></select>
       </div>
       <div>
+        <label for="col-filter-draftlegal">Draft legal</label>
+        <select id="col-filter-draftlegal">
+          <option value="">Alle</option>
+          <option value="yes">Ja</option>
+          <option value="no">Nee</option>
+        </select>
+      </div>
+      <div>
         <label for="col-filter-createdBy">Ontworpen door</label>
         <select id="col-filter-createdBy"><option value="">Alle</option></select>
       </div>
@@ -600,7 +608,7 @@
   });
 
   ["col-search"].forEach(id => document.getElementById(id).addEventListener("input", renderCollectionView));
-  ["col-filter-type","col-filter-theme","col-filter-location","col-filter-tag","col-filter-phase","col-filter-status","col-filter-createdBy","col-sort"].forEach(id =>
+  ["col-filter-type","col-filter-theme","col-filter-location","col-filter-tag","col-filter-phase","col-filter-status","col-filter-draftlegal","col-filter-createdBy","col-sort"].forEach(id =>
     document.getElementById(id).addEventListener("change", renderCollectionView));
 
   if (window.self !== window.top){

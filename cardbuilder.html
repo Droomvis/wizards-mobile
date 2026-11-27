@@ -960,7 +960,7 @@
           </select>
         </div>
         <div class="field">
-          <label class="ef-value-label">${eff.action === "ModifyShield" ? "Waarde (negatief = verlagen)" : ((eff.action === "Inflict" || isCounterAction(eff.action)) ? "Aantal" : "Waarde")}</label>
+          <label class="ef-value-label">${eff.action === "ModifyShield" ? "Waarde (negatief = verlagen)" : (eff.action === "Consult" ? "Aantal te bekijken" : ((eff.action === "Inflict" || isCounterAction(eff.action)) ? "Aantal" : "Waarde"))}</label>
           <input type="number" class="ef-value" value="${eff.value || 0}" step="1">
         </div>
       </div>
@@ -968,6 +968,36 @@
         <label>⚠ Conditie (vrije tekst, optioneel — bv. "bodyShield == 0")</label>
         <input type="text" class="ef-condition" value="${escapeHtml(eff.condition || "")}" placeholder="nog geen condition-parser — puur ter documentatie">
       </div>
+      ${(() => {
+        // Consult-velden (Consult-spec C5): enkel zichtbaar bij actie Consult. Wiens zone = het gewone Target (controller/opponent).
+        const cf = normalizeConsultFields(eff);
+        const opt = (list, labels, cur) => list.map(v => `<option value="${v}"${cur === v ? " selected" : ""}>${labels[v] || v}</option>`).join("");
+        const zoneL = { deck: "Deck", hand: "Hand", discard: "Discard", banished: "Banished" };
+        const fromL = { top: "Bovenkant", bottom: "Onderkant" };
+        const actL = { discard: "Discard (met Burden-stack/OnDiscard)", hand: "In hand nemen", banish: "Banish", topDeck: "Bovenop deck", bottomDeck: "Onderaan deck" };
+        const restL = { stay: "Blijven liggen", topDeck: "Bovenop deck", bottomDeck: "Onderaan deck", discard: "Discard", banish: "Banish" };
+        return `
+      <div class="effect-fields ef-consult-block" style="${eff.action === "Consult" ? "" : "display:none;"}">
+        <div class="field"><label>Bekijk zone</label>
+          <select class="ef-c-zone"><option value="">— kies —</option>${opt(CONSULT_ZONE_LIST, zoneL, cf.consultZone)}</select></div>
+        <div class="field ef-c-from-field" style="${cf.consultZone === "deck" ? "" : "display:none;"}"><label>Vanaf</label>
+          <select class="ef-c-from">${opt(CONSULT_FROM_LIST, fromL, cf.consultFrom)}</select></div>
+        <div class="field"><label>Alle kaarten</label>
+          <label style="font-size:12px;display:flex;align-items:center;gap:6px;"><input type="checkbox" class="ef-c-all" ${cf.consultAll ? "checked" : ""}> hele zone bekijken (negeert Aantal)</label></div>
+        <div class="field"><label>Kies minstens</label>
+          <input type="number" class="ef-c-min" min="0" step="1" value="${cf.consultPickMin}"></div>
+        <div class="field"><label>Kies hoogstens (0 = enkel kijken)</label>
+          <input type="number" class="ef-c-max" min="0" step="1" value="${cf.consultPickMax}"></div>
+        <div class="field"><label>Gekozen kaarten →</label>
+          <select class="ef-c-action"><option value="">— kies —</option>${opt(CONSULT_ACTION_LIST, actL, cf.consultAction)}</select></div>
+        <div class="field"><label>Niet-gekozen kaarten</label>
+          <select class="ef-c-rest">${opt(CONSULT_REST_LIST, restL, cf.consultRest)}</select></div>
+        <div class="field"><label>Kiesbaar: type (optioneel)</label>
+          <select class="ef-c-ftype"><option value="">— alles —</option>${TYPE_LIST.map(t => `<option value="${t}"${cf.consultFilter.type === t ? " selected" : ""}>${t}</option>`).join("")}</select></div>
+        <div class="field"><label>Kiesbaar: subtype (optioneel)</label>
+          <input type="text" class="ef-c-fsub" value="${escapeHtml(cf.consultFilter.subtype)}" placeholder="bv. Manifestation"></div>
+      </div>`;
+      })()}
       <div class="effect-warnings"></div>
       <div class="effect-costs-block ef-costs-field" style="${isActivated ? "" : "display:none;"}">
         <div class="costs-label">Cost om te activeren (combineerbaar — bv. exhaust + discard 1 kaart)</div>
@@ -1005,7 +1035,19 @@
       row.querySelector(".ef-burden-field").style.display = isInfl ? "" : "none";
       // AddCounter/RemoveCounter: tellerkleur tonen; Waarde heet dan Aantal (default 1), net als bij Inflict.
       row.querySelector(".ef-countercolor-field").style.display = isCnt ? "" : "none";
-      row.querySelector(".ef-value-label").textContent = isShield ? "Waarde (negatief = verlagen)" : ((isInfl || isCnt) ? "Aantal" : "Waarde");
+      const isCon = actionVal === "Consult";
+      row.querySelector(".ef-value-label").textContent = isShield ? "Waarde (negatief = verlagen)" : (isCon ? "Aantal te bekijken" : ((isInfl || isCnt) ? "Aantal" : "Waarde"));
+      // Consult: eigen veldenblok; het Aantal geldt enkel voor een deck zonder "alle kaarten" (default 3).
+      row.querySelector(".ef-consult-block").style.display = isCon ? "" : "none";
+      const conZone = row.querySelector(".ef-c-zone").value;
+      const conAll = row.querySelector(".ef-c-all").checked;
+      row.querySelector(".ef-c-from-field").style.display = conZone === "deck" ? "" : "none";
+      const conValEl = row.querySelector(".ef-value");
+      conValEl.closest(".field").style.display = (isCon && (conZone !== "deck" || conAll)) ? "none" : "";
+      if (isCon && conZone === "deck" && !conAll && !(Number(conValEl.value) > 0)){
+        conValEl.value = 3;
+        conValEl.dispatchEvent(new Event("input", { bubbles: true }));
+      }
       const valEl = row.querySelector(".ef-value");
       if ((isInfl || isCnt) && !(Number(valEl.value) > 0)){
         valEl.value = 1;
@@ -1015,6 +1057,7 @@
     row.querySelector(".ef-action").addEventListener("change", refreshDamageTypeField);
     const isAttackBox = row.querySelector(".ef-is-attack");
     if (isAttackBox) isAttackBox.addEventListener("change", refreshDamageTypeField);
+    row.querySelectorAll(".ef-c-zone, .ef-c-all").forEach(el => el.addEventListener("change", refreshDamageTypeField));
     row.querySelector(".btn-add-cost").addEventListener("click", () => addCostToEffect(eff.id));
     row.querySelectorAll(".btn-remove-cost").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -1118,6 +1161,19 @@
       eff.burdenId = (eff.action === "Inflict" && burdenEl) ? burdenEl.value : "";
       const counterColorEl = row.querySelector(".ef-countercolor");
       eff.counterColor = (isCounterAction(eff.action) && counterColorEl) ? counterColorEl.value : "";
+      if (eff.action === "Consult"){
+        const q = (s) => row.querySelector(s);
+        Object.assign(eff, normalizeConsultFields({
+          consultZone: q(".ef-c-zone").value,
+          consultFrom: q(".ef-c-from").value,
+          consultAll: q(".ef-c-all").checked,
+          consultPickMin: q(".ef-c-min").value,
+          consultPickMax: q(".ef-c-max").value,
+          consultAction: q(".ef-c-action").value,
+          consultRest: q(".ef-c-rest").value,
+          consultFilter: { type: q(".ef-c-ftype").value, subtype: q(".ef-c-fsub").value }
+        }));
+      }
       if (eff.kind === "activated"){
         eff.costs = Array.from(row.querySelectorAll(".ef-costs-list .cost-row")).map(costRow => normalizeCostEntry({
           type: costRow.querySelector(".cost-type").value,

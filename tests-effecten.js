@@ -628,7 +628,9 @@ function tests(){
     const dec = (o) => decideReactiveEvent(Object.assign({ enabled: true, trigger: 'OnReady', effects: [eff('OnReady')], depth: 0 }, o || {}));
 
     // constanten en ondersteuning
-    eq(REACTIVE_TRIGGERS, TR, 'reactief: de vier triggers');
+    eq(REACTIVE_TRIGGERS, TR.concat(['OnEnterHand']), 'reactief: de vier triggers + OnEnterHand (Consult-spec C5b)');
+    ok(isTriggerImplemented('OnEnterHand'), 'reactief: OnEnterHand is geimplementeerd');
+    eq(dec({ trigger: 'OnEnterHand', effects: [eff('OnEnterHand')] }), { queue: true, code: '' }, 'decide: OnEnterHand in de rij');
     eq(REACTIVE_MAX_DEPTH, 1, 'reactief: standaard diepte 1 (D1)');
     TR.forEach(t => ok(isTriggerImplemented(t), 'reactief: ' + t + ' is geimplementeerd'));
     ['OnPlayed', 'OnResolve', 'OnRest', 'StartOfTurn'].forEach(t => ok(!REACTIVE_TRIGGERS.includes(t), 'reactief: ' + t + ' is geen reactieve trigger'));
@@ -844,6 +846,135 @@ function tests(){
     ok(checkCastLegality(st, 0, { type: "Destiny", actionCost: 9, spiteCost: 9 }).ok, "cast: een type zonder cast-kost betaalt niet");
     ok(checkCastLegality(st, 0, null).ok, "cast: geen kaartdata blokkeert niet");
     ok(checkCastLegality({ settings: { enforceCastLegality: false }, stack: [], turn: 1, players: [T] }, 0, { type: "Hex", actionCost: 9 }).ok, "cast: legaliteit uit = altijd ok");
+  }
+
+  // ---- Consult (Consult-specificatie.txt, 2026-11-27): datamodel ----
+  {
+    const n = normalizeEffect({ kind: "trigger", trigger: "OnResolve", action: "Consult", target: "opponent", value: 3, consultZone: "deck", consultAction: "hand" });
+    eq([n.consultZone, n.consultFrom, n.consultAll, n.consultPickMin, n.consultPickMax, n.consultAction, n.consultRest], ["deck", "top", false, 1, 1, "hand", "stay"], "consult normalize: defaults (kies 1, rest blijft liggen)");
+    eq(n.consultFilter, { type: "", subtype: "" }, "consult normalize: leeg filter");
+    const m = normalizeEffect({ action: "Consult", consultZone: "kaas", consultFrom: "bottom", consultAll: 1, consultPickMin: -3, consultPickMax: 2.9, consultAction: "x", consultRest: "discard", consultFilter: { type: "Manifestation", subtype: "  Minion " } });
+    eq([m.consultZone, m.consultFrom, m.consultAll, m.consultPickMin, m.consultPickMax, m.consultAction, m.consultRest], ["", "bottom", true, 0, 2, "", "discard"], "consult normalize: ongeldig -> leeg/default, negatief -> 0, afgerond");
+    eq(m.consultFilter, { type: "Manifestation", subtype: "Minion" }, "consult normalize: filter opgeschoond");
+    eq(normalizeEffect({ action: "Consult", consultFilter: { type: "Kaas" } }).consultFilter.type, "", "consult normalize: onbekend type in filter");
+    ok(!("consultZone" in normalizeEffect({ action: "Draw", consultZone: "deck" })), "consult normalize: andere acties krijgen de velden niet");
+    const again = normalizeEffect(n);
+    eq(again, n, "consult normalize: idempotent");
+    ok(TRIGGER_LIST.includes("OnEnterHand") && ACTION_LIST.includes("Consult"), "consult: trigger en actie staan in de lijsten");
+    ok(isActionImplemented("Consult"), "consult: actie is geimplementeerd");
+    TRIGGER_LIST.forEach(t => ok(EFFECT_SUPPORT.triggers[t] && EFFECT_SUPPORT.triggers[t].includes("Consult"), "consult: werkt bij " + t));
+    eq(effectIssues(Object.assign({}, n, { value: 3 })), [], "consult issues: volledig ingevuld = geen waarschuwingen");
+    const bad = effectIssues(normalizeEffect({ kind: "trigger", trigger: "OnResolve", action: "Consult", target: "chosen", value: 0, consultZone: "deck", consultPickMin: 2, consultPickMax: 1 }));
+    ok(bad.some(s => /Target/.test(s)), "consult issues: chosen werkt niet");
+    ok(bad.some(s => /Aantal te bekijken/.test(s)), "consult issues: aantal 0 bij deck");
+    ok(bad.some(s => /bestemming/.test(s)), "consult issues: geen bestemming");
+    ok(bad.some(s => /Kies-maximum/.test(s)), "consult issues: max < min");
+    ok(effectIssues(normalizeEffect({ kind: "trigger", trigger: "OnResolve", action: "Consult", target: "controller", value: 0, consultZone: "hand", consultAction: "discard" })).length === 0, "consult issues: aantal 0 mag bij een andere zone dan deck");
+    ok(effectIssues(normalizeEffect({ kind: "trigger", trigger: "OnResolve", action: "Consult", target: "controller", value: 0, consultAll: true, consultZone: "deck", consultAction: "hand" })).length === 0, "consult issues: alle kaarten heeft geen aantal nodig");
+    ok(effectIssues(normalizeEffect({ kind: "activated", action: "Consult", target: "controller", consultZone: "deck", consultAction: "hand", costs: [{ type: "ExhaustSelf", value: 1 }] })).some(s => /activated ability/.test(s)), "consult issues: als activated ability nog niet");
+    eq(effectTargetNote("opponent", n), "", "consult target: opponent ok");
+    ok(effectTargetNote("self", n) !== "", "consult target: self niet");
+  }
+
+  // ---- Consult: pure functies ----
+  {
+    const cards = {
+      m1: { id: "m1", type: "Manifestation", name: "Muur", subtypes: ["Structure"] },
+      m2: { id: "m2", type: "Manifestation", name: "Rat", subtypes: ["Minion"] },
+      i1: { id: "i1", type: "Incantation", name: "Vonk", subtypes: [] },
+      b1: { id: "b1", type: "Burden", name: "Last", subtypes: ["Manifestation"] }
+    };
+    const find = (id) => cards[id];
+    const mk = (ids) => ids.map(id => mkCi(id, { cardId: id.replace(/\d+$/, "") ? id : id }));
+    const P = () => { const p = [mkPlayer(), mkPlayer()]; return p; };
+    const deckOf = (p, ids) => { p.deck = ids.map(id => mkCi(id, { cardId: id.split("_")[0] })); };
+
+    // matchesConsultFilter
+    ok(matchesConsultFilter(cards.m1, null) && matchesConsultFilter(cards.m1, {}) && matchesConsultFilter(null, { type: "", subtype: "" }), "filter: leeg = alles, ook een verwijderde kaart");
+    ok(matchesConsultFilter(cards.m1, { type: "Manifestation" }) && !matchesConsultFilter(cards.i1, { type: "Manifestation" }), "filter: type");
+    ok(matchesConsultFilter(cards.m2, { subtype: "minion" }) && !matchesConsultFilter(cards.m1, { subtype: "Minion" }), "filter: subtype (hoofdletterongevoelig)");
+    ok(matchesConsultFilter(cards.b1, { type: "Burden", subtype: "Manifestation" }) && !matchesConsultFilter(cards.m2, { type: "Burden", subtype: "Minion" }), "filter: type EN subtype");
+    ok(!matchesConsultFilter(null, { type: "Burden" }) && !matchesConsultFilter(undefined, { subtype: "x" }), "filter: verwijderde kaart past niet bij een filter");
+
+    // consultWindow
+    const d = [mkCi("a"), mkCi("b"), mkCi("c"), mkCi("d")];
+    eq(consultWindow(d, "deck", "top", 2), ["a", "b"], "window: top 2 (index 0 = top)");
+    eq(consultWindow(d, "deck", "bottom", 2), ["c", "d"], "window: onderste 2, in dekvolgorde");
+    eq(consultWindow(d, "deck", "top", 99), ["a", "b", "c", "d"], "window: X groter dan het deck");
+    eq(consultWindow(d, "deck", "top", "all"), ["a", "b", "c", "d"], "window: all");
+    eq(consultWindow(d, "deck", "bottom", 0), [], "window: 0 onderste");
+    eq(consultWindow(d, "hand", "top", 1), ["a", "b", "c", "d"], "window: andere zones tonen alles (count genegeerd)");
+    eq(consultWindow(null, "deck", "top", 3), [], "window: geen lijst");
+
+    // planConsultEntry
+    let pl = P(); deckOf(pl[1], ["m1_a", "m2_a", "i1_a", "b1_a"]);
+    let r = planConsultEntry({ casterIdx: 0, ownerIdx: 1, zone: "deck", count: 3, pickMin: 1, pickMax: 1, action: "hand", rest: "bottomDeck", sourceLabel: "Bol" }, pl, find);
+    ok(r.entry && r.entry.isConsult && r.entry.priorityWith === 0 && r.entry.casterIdx === 0 && r.entry.ownerIdx === 1, "entry: vorm, priority bij de caster");
+    eq(r.entry.shown, ["m1_a", "m2_a", "i1_a"], "entry: top 3 getoond");
+    eq(r.entry.pickable, r.entry.shown, "entry: zonder filter is alles kiesbaar");
+    eq([r.entry.pickMin, r.entry.pickMax, r.entry.rest, r.entry.action], [1, 1, "bottomDeck", "hand"], "entry: min/max/rest/action");
+    ok(typeof r.entry.instanceId === "string" && r.entry.instanceId, "entry: eigen instanceId");
+    eq(pl[1].deck.length, 4, "entry: muteert het deck niet");
+    r = planConsultEntry({ casterIdx: 0, ownerIdx: 1, zone: "deck", all: true, pickMin: 1, pickMax: 2, action: "hand", filter: { type: "Manifestation" } }, pl, find);
+    eq([r.entry.shown.length, r.entry.pickable], [4, ["m1_a", "m2_a"]], "entry: filter beperkt enkel het kiesbare, niet het getoonde");
+    r = planConsultEntry({ casterIdx: 0, ownerIdx: 1, zone: "deck", all: true, pickMin: 3, pickMax: 5, action: "hand", filter: { type: "Manifestation" } }, pl, find);
+    eq([r.entry.pickMin, r.entry.pickMax], [2, 2], "entry: min/max teruggebracht tot het kiesbare (geen fout)");
+    r = planConsultEntry({ casterIdx: 0, ownerIdx: 1, zone: "deck", all: true, pickMin: 1, pickMax: 1, action: "hand", filter: { type: "Hex" } }, pl, find);
+    eq([r.entry.pickable, r.entry.pickMin, r.entry.pickMax], [[], 0, 0], "entry: niets kiesbaar = enkel kijken");
+    r = planConsultEntry({ casterIdx: 0, ownerIdx: 1, zone: "deck", count: 2, pickMin: 3, pickMax: 1, action: "hand" }, pl, find);
+    eq([r.entry.pickMin, r.entry.pickMax], [2, 2], "entry: max < min -> max = min, daarna begrensd");
+    r = planConsultEntry({ casterIdx: 0, ownerIdx: 1, zone: "deck", count: 2, pickMax: 0, action: "hand" }, pl, find);
+    eq([r.entry.pickMin, r.entry.pickMax], [0, 0], "entry: pickMax 0 = enkel kijken");
+    r = planConsultEntry({ casterIdx: 0, ownerIdx: 1, zone: "deck", from: "bottom", count: 2, pickMax: 1, action: "discard" }, pl, find);
+    eq([r.entry.shown, r.entry.from], [["i1_a", "b1_a"], "bottom"], "entry: onderkant van het deck");
+    // niets te bekijken / ongeldig
+    pl = P();
+    ok(planConsultEntry({ casterIdx: 0, ownerIdx: 0, zone: "deck", count: 3, pickMax: 1, action: "hand" }, pl, find).entry === null, "entry: leeg deck = geen entry");
+    ok(/leeg/.test(planConsultEntry({ casterIdx: 0, ownerIdx: 0, zone: "discard", pickMax: 1, action: "hand" }, pl, find).reason), "entry: lege discard geeft een reden");
+    deckOf(pl[0], ["m1_a"]);
+    ok(planConsultEntry({ casterIdx: 0, ownerIdx: 0, zone: "deck", count: 0, pickMax: 1, action: "hand" }, pl, find).entry === null, "entry: aantal 0 = geen entry");
+    ok(planConsultEntry({ casterIdx: 0, ownerIdx: 0, zone: "kaas", count: 1, pickMax: 1, action: "hand" }, pl, find).entry === null, "entry: onbekende zone");
+    ok(planConsultEntry({ casterIdx: 0, ownerIdx: 0, zone: "deck", count: 1, pickMax: 1, action: "kaas" }, pl, find).entry === null, "entry: onbekende bestemming");
+    ok(planConsultEntry({ casterIdx: 0, ownerIdx: 7, zone: "deck", count: 1, pickMax: 1, action: "hand" }, pl, find).entry === null, "entry: onbekende speler");
+    ok(planConsultEntry({ casterIdx: 0, ownerIdx: 0, zone: "deck", count: 1, pickMax: 1, action: "any", manual: true }, pl, find).entry.manual === true, "entry: handmatig met action any");
+    pl[0].hand = [mkCi("m2_h", { cardId: "m2" })];
+    eq(planConsultEntry({ casterIdx: 0, ownerIdx: 0, zone: "hand", count: 1, pickMax: 1, action: "discard" }, pl, find).entry.shown, ["m2_h"], "entry: hand toont alles");
+
+    // validateConsultDecision
+    pl = P(); deckOf(pl[1], ["m1_a", "m2_a", "i1_a", "b1_a"]);
+    const E1 = planConsultEntry({ casterIdx: 0, ownerIdx: 1, zone: "deck", count: 3, pickMin: 1, pickMax: 2, action: "hand" }, pl, find).entry;
+    ok(validateConsultDecision(E1, { picks: ["m1_a"] }, pl.slice()).ok, "valideer: een kaart is ok");
+    ok(validateConsultDecision(E1, { picks: ["i1_a", "m1_a"] }).ok, "valideer: twee kaarten ok (volgorde vrij), zonder players");
+    ok(!validateConsultDecision(E1, { picks: [] }, pl).ok && /minstens/.test(validateConsultDecision(E1, { picks: [] }, pl).reason), "valideer: te weinig");
+    ok(!validateConsultDecision(E1, { picks: ["m1_a", "m2_a", "i1_a"] }, pl).ok && /hoogstens/.test(validateConsultDecision(E1, { picks: ["m1_a", "m2_a", "i1_a"] }, pl).reason), "valideer: te veel");
+    ok(/dubbel/.test(validateConsultDecision(E1, { picks: ["m1_a", "m1_a"] }, pl).reason), "valideer: dubbel");
+    ok(/niet kiesbaar/.test(validateConsultDecision(E1, { picks: ["b1_a"] }, pl).reason), "valideer: kaart buiten het getoonde (4e kaart)");
+    ok(/niet kiesbaar/.test(validateConsultDecision(E1, { picks: ["verzonnen"] }, pl).reason), "valideer: onbekend id");
+    ok(!validateConsultDecision(E1, null).ok && !validateConsultDecision(E1, { picks: "x" }).ok && !validateConsultDecision(null, { picks: [] }).ok && !validateConsultDecision({}, { picks: [] }).ok, "valideer: rommel-invoer");
+    pl[1].deck.shift();
+    ok(/verplaatst/.test(validateConsultDecision(E1, { picks: ["m2_a"] }, pl).reason), "valideer: bekeken kaart is intussen weg");
+    ok(validateConsultDecision(E1, { picks: ["m2_a"] }).ok, "valideer: zonder players geen zone-controle");
+    const EF = planConsultEntry({ casterIdx: 0, ownerIdx: 1, zone: "hand", pickMin: 1, pickMax: 1, action: "any", manual: true }, (() => { const q = P(); q[1].hand = [mkCi("x", { cardId: "m1" })]; return q; })(), find).entry;
+    ok(!validateConsultDecision(EF, { picks: ["x"] }).ok && /bestemming/.test(validateConsultDecision(EF, { picks: ["x"] }).reason), "valideer: action any vraagt een bestemming");
+    ok(validateConsultDecision(EF, { picks: ["x"], action: "banish" }).ok && !validateConsultDecision(EF, { picks: ["x"], action: "kaas" }).ok, "valideer: action any met geldige/ongeldige bestemming");
+    const EZ = planConsultEntry({ casterIdx: 0, ownerIdx: 1, zone: "hand", pickMin: 0, pickMax: 0, action: "any" }, (() => { const q = P(); q[1].hand = [mkCi("x", { cardId: "m1" })]; return q; })(), find).entry;
+    ok(validateConsultDecision(EZ, { picks: [] }).ok, "valideer: enkel kijken zonder bestemming is ok");
+
+    // planConsultMoves
+    const ent = (o) => Object.assign({ isConsult: true, ownerIdx: 1, zone: "deck", shown: ["a", "b", "c"], action: "hand", rest: "stay" }, o || {});
+    eq(planConsultMoves(ent(), { picks: ["b"] }), [{ instanceId: "b", fromPlayerIdx: 1, fromZone: "deck", toPlayerIdx: 1, toZone: "hand", position: "any" }], "moves: gekozen kaart naar de hand van de EIGENAAR, rest blijft");
+    eq(planConsultMoves(ent({ rest: "bottomDeck" }), { picks: ["b"] }).map(m => m.instanceId + ">" + m.toZone + ":" + m.position), ["a>deck:bottom", "c>deck:bottom", "b>hand:any"], "moves: rest eerst (onderaan), dan de keuze");
+    eq(planConsultMoves(ent({ action: "topDeck" }), { picks: ["c", "a"] }).map(m => m.instanceId), ["a", "c"], "moves: topDeck omgekeerd toegepast, zodat de eerst gekozen bovenaan eindigt");
+    eq(planConsultMoves(ent({ action: "bottomDeck" }), { picks: ["c", "a"] }).map(m => m.instanceId), ["c", "a"], "moves: bottomDeck in gekozen volgorde");
+    eq(planConsultMoves(ent({ zone: "hand", action: "hand" }), { picks: ["a"] }), [], "moves: hand -> hand is niets");
+    eq(planConsultMoves(ent({ zone: "discard", action: "discard", rest: "discard" }), { picks: ["a"] }), [], "moves: discard -> discard is niets");
+    eq(planConsultMoves(ent({ zone: "discard", action: "discard", rest: "banish" }), { picks: ["a"] }).map(m => m.instanceId + ">" + m.toZone), ["b>banished", "c>banished"], "moves: rest banish uit de discard, gekozen blijft liggen");
+    ok(planConsultMoves(ent({ action: "topDeck" }), { picks: ["a"] }).length === 1 && planConsultMoves(ent({ action: "topDeck" }), { picks: ["a"] })[0].toZone === "deck", "moves: deck -> topDeck is een herordening (geen no-op)");
+    eq(planConsultMoves(ent({ action: "any" }), { picks: ["a"], action: "banish" }).map(m => m.toZone), ["banished"], "moves: action any gebruikt de gekozen bestemming");
+    eq(planConsultMoves(ent({ action: "any" }), { picks: ["a"] }), [], "moves: action any zonder bestemming = niets");
+    eq(planConsultMoves(ent({ zone: "hand", action: "discard", rest: "stay" }), { picks: [] }), [], "moves: geen keuze, rest stay = niets");
+    eq(planConsultMoves(null, { picks: [] }), [], "moves: geen entry");
+    eq(planConsultMoves(ent(), null), [], "moves: geen decision");
   }
 
   console.log(passed + " geslaagd, " + failed + " mislukt");

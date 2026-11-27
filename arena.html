@@ -685,6 +685,35 @@
   .arena-pile-title{ font-family: var(--font-display); font-size:14px; color: var(--gold-soft); margin:0 22px 0 0; }
   .arena-pile-grid{ display:flex; flex-wrap:wrap; align-content:flex-start; gap:5px; overflow-y:auto; min-height:32px; }
 
+  /* Consult-viewer (Consult-spec C4) */
+  #arena-consult-overlay{
+    position:fixed; inset:0; z-index:7600; display:none;
+    align-items:center; justify-content:center;
+    background: rgba(10,8,14,0.78);
+    padding:24px;
+  }
+  #arena-consult-overlay.open{ display:flex; }
+  .arena-consult-box{
+    position:relative; width:640px; max-width:100%; max-height:86vh;
+    display:flex; flex-direction:column; gap:10px;
+    background: var(--panel); border:1px solid var(--gold); border-radius:10px;
+    padding:16px; box-shadow: 0 14px 30px rgba(0,0,0,0.55);
+  }
+  .consult-sub{ font-size:12px; color: var(--ink-dim); line-height:1.4; margin-right:22px; }
+  .consult-grid{ display:flex; flex-wrap:wrap; align-content:flex-start; gap:6px; overflow-y:auto; min-height:40px; padding:4px; }
+  .consult-card{ position:relative; cursor:pointer; border-radius:6px; }
+  .consult-card.picked{ outline:2px solid var(--gold); box-shadow:0 0 10px rgba(226,197,131,0.55); }
+  .consult-card.dim{ opacity:0.35; cursor:not-allowed; }
+  .consult-badge{
+    position:absolute; top:-6px; right:-6px; min-width:18px; height:18px; border-radius:9px;
+    background: var(--gold); color:#1a1420; font-size:11px; font-weight:bold;
+    display:flex; align-items:center; justify-content:center; padding:0 4px; z-index:2;
+  }
+  .consult-actions{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  .consult-actions .btn.sel{ border-color: var(--gold); color: var(--gold-soft); }
+  .consult-footer{ display:flex; gap:8px; align-items:center; justify-content:flex-end; }
+  .consult-wait{ font-size:12px; color: var(--ink-dim); margin-right:auto; }
+
   @media (max-width: 900px){
     .p-main{ flex-direction:column; }
     .p-sidebar{ flex-direction:row; flex:0 0 auto; width:100%; }
@@ -884,7 +913,7 @@
   // wanneer de vorm van de state zo wijzigt dat een oudere client er niets zinnigs meer mee kan
   // (bv. een nieuwe soort stack-entry). loadArena() en mpApplyRemoteState() weigeren een andere versie.
   // Versie 1 = alles vanaf 2026-11-25 (voordien had een arena geen schemaVersion).
-  const ARENA_SCHEMA_VERSION = 1;
+  const ARENA_SCHEMA_VERSION = 2; // 2 (2026-11-27): Consult-entries (isConsult) op de stack + setting consultEffects
   let collection = [];
   let decks = [];
 
@@ -968,7 +997,7 @@
     // niets (dat gebeurt enkel nog door acties te spenderen, zie
     // tickSlumberOnce); Spite zakt bij rest naar de Soul-stat i.p.v. naar 0
     // (en blijft behouden als ze al <= Soul-stat is). UIT = het oude gedrag.
-    return { autoPayCost: true, enforceCastLegality: true, resolveEnabled: true, hideOpponentHand: true, freeActionSpending: true, turnRedux: true, resolveEffects: true, burdenDiscardStack: true, discardEffects: true, restEffects: true, inflictEffects: true, directEffects: true, turnEffects: true, playedEffects: true, abilityEffects: true, enterPlayEffects: true, cardEffects: true, reactiveEffects: true };
+    return { autoPayCost: true, enforceCastLegality: true, resolveEnabled: true, hideOpponentHand: true, freeActionSpending: true, turnRedux: true, resolveEffects: true, burdenDiscardStack: true, discardEffects: true, restEffects: true, inflictEffects: true, directEffects: true, turnEffects: true, playedEffects: true, abilityEffects: true, enterPlayEffects: true, cardEffects: true, reactiveEffects: true, consultEffects: true };
   }
 
   function ensureArenaSettings(){
@@ -1342,6 +1371,8 @@
     setTapped,
     otherPlayerIdx,
     drawCards,
+    pushBurdenToStack,
+    discardCardsWithTriggers,
     fireOnResolveEffects,
     fireOnDiscardEffects,
     fireTurnTriggers,
@@ -1355,6 +1386,9 @@
     abilityActivationCheck,
     resolveAbilityEntry,
     fireRestTriggers,
+    startConsult,
+    resolveConsult,
+    cancelConsult,
     ZONE_LABELS,
     DAMAGE_TYPE_LABELS,
     DAMAGE_TYPE_ICONS,
@@ -1848,6 +1882,7 @@
     const entry = arena.stack[arena.stack.length - 1];
     if (entry.isInflict) return; // Inflict-entries lopen via takeStackInflict(), niet via Resolve
     if (entry.isDamage) return; // damage-entries lopen via takeStackDamage(), niet via Resolve
+    if (entry.isConsult) return; // consult-entries lopen via de viewer (resolveConsult), niet via Resolve
     if (entry.priorityWith !== playerIdx) return;
     if (entry.isAbility){
       // Activated ability (Stap 7): zelfde priority-flow als een gecaste kaart; bij Resolve door de
@@ -1981,22 +2016,8 @@
   // "caster", de tegenstander krijgt eerst priority, en bij Resolve van de eigenaar
   // verhuist de kaart naar zijn discard (resolveStackTop) en vuren OnResolve- en
   // OnDiscard-effecten af.
-  function pushBurdenToStack(ownerIdx, ci){
-    const card = findCard(ci.cardId);
-    ci.tapped = false;
-    ci.counters = freshCounters();
-    ci.casterIdx = ownerIdx;
-    ci.targetLabel = "(geen specifiek doel)";
-    ci.destPlayerIdx = ownerIdx;
-    ci.destZone = "discard";
-    ci.targetRef = null;
-    ci.priorityWith = otherPlayerIdx(ownerIdx);
-    ci.isDiscardTrigger = true;
-    arena.stack.push(ci);
-    logAction(`☠️ Burden "${card ? (card.name || "(naamloos)") : "(verwijderde kaart)"}" van ${arena.players[ownerIdx].name} gaat bij END TURN op de stack`, "burden-stack");
-    saveArena();
-    renderArenaBoard();
-  }
+  // (2026-11-27, Consult-spec C1: pushBurdenToStack en de discard-afhandeling staan nu in shared/game-engine.js,
+  // zodat ook Consult dezelfde discard-gevolgen heeft; hierboven uit de engine gedestructureerd.)
 
   // Einde-beurt: de eerste kaarten in de hand (t.e.m. de Mind-stat van de
   // speler) blijven automatisch behouden, de rest wordt gediscard. De
@@ -2014,19 +2035,10 @@
     if (p.hand.length > mind){
       const toDiscard = p.hand.slice(mind);
       p.hand = p.hand.slice(0, mind);
-      ensureArenaSettings();
-      const burdensToStack = [], discardedCards = [];
-      toDiscard.forEach(ci => {
-        const dCard = findCard(ci.cardId);
-        if (arena.settings.burdenDiscardStack && dCard && dCard.type === "Burden"){ burdensToStack.push(ci); return; }
-        ci.tapped = false; ci.counters = freshCounters(); p.discard.push(ci);
-        discardedCards.push(dCard);
-      });
       logAction(`⏭️ ${p.name} beëindigt de beurt — eerste ${mind} kaart(en) in hand behouden, ${toDiscard.length} gediscard`, "turn-end");
-      // Burdens eerst op de stack, daarna de OnDiscard-effecten van de rechtstreeks
-      // gediscarde kaarten (Burdens op de stack vuren pas bij hun Resolve).
-      burdensToStack.forEach(ci => pushBurdenToStack(playerIdx, ci));
-      discardedCards.forEach(dCard => { if (dCard) fireOnDiscardEffects(dCard, playerIdx); });
+      // Burdens eerst op de stack, daarna de OnDiscard-effecten van de rechtstreeks gediscarde kaarten
+      // (Burdens op de stack vuren pas bij hun Resolve). Sinds Consult-spec C1 in de engine.
+      discardCardsWithTriggers(playerIdx, toDiscard);
     } else {
       logAction(`⏭️ ${p.name} beëindigt de beurt`, "turn-end");
     }
@@ -2457,7 +2469,7 @@
         <div class="arena-pile-box">
           <div class="arena-pile-title">${escapeHtml(zoneLabel)} — ${escapeHtml(p.name)} (${list.length})</div>
           <div class="arena-pile-grid"></div>
-          ${list.length ? `<button type="button" class="btn" id="pile-shuffle-btn">↺ Meng terug in deck</button>` : ""}
+          ${list.length ? `<button type="button" class="btn" id="pile-consult-btn">🔍 Consult (kies kaarten)</button><button type="button" class="btn" id="pile-shuffle-btn">↺ Meng terug in deck</button>` : ""}
           <button type="button" class="arena-choice-close" id="pile-close-btn" title="Sluiten">×</button>
         </div>
       `;
@@ -2468,6 +2480,11 @@
         list.slice().reverse().forEach(ci => grid.appendChild(buildArenaCardNode(playerIdx, zone, ci, "chip-sm")));
       }
       el.querySelector("#pile-close-btn").addEventListener("click", ctx.close);
+      const consultBtn = el.querySelector("#pile-consult-btn");
+      if (consultBtn) consultBtn.addEventListener("click", () => {
+        ctx.close();
+        startManualConsult(playerIdx, zone, "all");
+      });
       const shuffleBtn = el.querySelector("#pile-shuffle-btn");
       if (shuffleBtn) shuffleBtn.addEventListener("click", () => {
         shuffleZoneIntoDeck(playerIdx, zone);
@@ -2486,6 +2503,201 @@
 
   function renderArenaPileOverlay(){
     arenaPileOverlay.render();
+  }
+
+  // ---- Consult-viewer (Consult-spec C4, 2026-11-27) ----
+  // Een wachtende consult is een isConsult-entry bovenaan de stack (priority bij de caster). De viewer opent automatisch op de
+  // client van de caster; de keuze-draft (picks + bestemming) leeft enkel lokaal en gaat pas bij Bevestig als één decision naar
+  // engine.resolveConsult (host-klaar: de engine valideert). De tegenstander ziet enkel de stack-entry en het logboek.
+  const CONSULT_ACTION_LABELS = { discard: "Discard", hand: "In hand nemen", banish: "Banish", topDeck: "Bovenop deck", bottomDeck: "Onderaan deck" };
+  const CONSULT_REST_LABELS = { stay: "blijven liggen", topDeck: "gaan bovenop het deck", bottomDeck: "gaan onderaan het deck", discard: "gaan naar de discard", banish: "worden gebanished" };
+  const CONSULT_ZONE_NAMES = { deck: "Deck", hand: "Hand", discard: "Discard", banished: "Banished" };
+  let consultDraft = { entryId: null, picks: [], action: null };
+  let consultOpenEntryId = null;
+  let consultDismissedId = null;
+
+  function topConsultEntry(){
+    if (!arena || !arena.stack || arena.stack.length === 0) return null;
+    const e = arena.stack[arena.stack.length - 1];
+    return (e && e.isConsult) ? e : null;
+  }
+  function clientMayDecideConsult(entry){
+    const me = clientOwnedPlayerIdx();
+    return me === null || me === entry.casterIdx;
+  }
+
+  function buildConsultCardNode(entry, id){
+    const owner = arena.players[entry.ownerIdx];
+    const ci = owner ? (owner[entry.zone] || []).find(c => c.instanceId === id) : null;
+    const card = ci ? findCard(ci.cardId) : null;
+    const wrap = document.createElement("div");
+    wrap.className = "arena-chip chip-sm consult-card";
+    wrap.dataset.instanceId = id;
+    if (!card){
+      wrap.innerHTML = `<div class="chip-name" style="color:var(--ink-dim);">Verwijderde kaart</div>`;
+    } else {
+      wrap.setAttribute("style", `--type-color: var(${TYPE_COLOR_VAR[card.type] || "--gold"});`);
+      wrap.innerHTML = buildChipContentHtml(card);
+      wrap.addEventListener("mouseenter", () => showArenaPreview(wrap, card));
+      wrap.addEventListener("mouseleave", hideArenaPreview);
+    }
+    return wrap;
+  }
+
+  const arenaConsultOverlay = createOverlayManager({
+    id: "arena-consult-overlay",
+    mount: () => document.getElementById("view-arena"),
+    renderContent(el, state, ctx){
+      const entry = topConsultEntry();
+      if (!entry || entry.instanceId !== state.entryId){ ctx.close(); return; }
+      if (consultDraft.entryId !== entry.instanceId){
+        consultDraft = { entryId: entry.instanceId, picks: [], action: (entry.action === "any") ? null : entry.action };
+      }
+      consultDraft.picks = consultDraft.picks.filter(id => entry.pickable.includes(id));
+      const picks = consultDraft.picks;
+      const owner = arena.players[entry.ownerIdx], caster = arena.players[entry.casterIdx];
+      const mayDecide = clientMayDecideConsult(entry);
+      const nTxt = entry.pickMin === entry.pickMax ? `${entry.pickMax}` : `${entry.pickMin}–${entry.pickMax}`;
+      const f = entry.filter || {};
+      const filterTxt = (f.type || f.subtype) ? ` (enkel ${[f.type, f.subtype].filter(Boolean).join(" / ")})` : "";
+      const destTxt = entry.action === "any" ? "naar een bestemming naar keuze" : `→ ${CONSULT_ACTION_LABELS[entry.action] || entry.action}`;
+      const restTxt = entry.zone === "deck" || entry.rest !== "stay" ? ` De overige kaarten ${CONSULT_REST_LABELS[entry.rest] || entry.rest}.` : "";
+      const orderTxt = (entry.zone === "deck" && entry.from !== "bottom") ? " Getoond van bovenaan naar onderaan." : "";
+      el.innerHTML = `
+        <div class="arena-consult-box">
+          <div class="arena-pile-title">🔍 ${escapeHtml(entry.sourceLabel || "Consult")} — ${escapeHtml(CONSULT_ZONE_NAMES[entry.zone] || entry.zone)} van ${escapeHtml(owner ? owner.name : "?")} (${entry.shown.length})</div>
+          <div class="consult-sub">Kies ${nTxt} kaart(en)${escapeHtml(filterTxt)} ${escapeHtml(destTxt)}.${escapeHtml(restTxt)}${escapeHtml(orderTxt)}${entry.pickMax > 1 ? " De volgorde waarin je klikt telt (nummers)." : ""}</div>
+          <div class="consult-grid"></div>
+          <div class="consult-actions"></div>
+          <div class="consult-footer">
+            ${mayDecide ? "" : `<span class="consult-wait">Wacht op ${escapeHtml(caster ? caster.name : "?")}</span>`}
+            ${entry.manual && mayDecide ? `<button type="button" class="btn" id="consult-cancel-btn">Annuleer</button>` : ""}
+            <button type="button" class="btn primary" id="consult-confirm-btn"></button>
+          </div>
+          <button type="button" class="arena-choice-close" id="consult-close-btn" title="Verbergen (de consult blijft op de stack)">×</button>
+        </div>
+      `;
+      const grid = el.querySelector(".consult-grid");
+      entry.shown.forEach(id => {
+        const node = buildConsultCardNode(entry, id);
+        const canPick = entry.pickable.includes(id);
+        const idx = picks.indexOf(id);
+        if (!canPick) node.classList.add("dim");
+        if (idx >= 0){
+          node.classList.add("picked");
+          if (entry.pickMax > 1) node.insertAdjacentHTML("beforeend", `<span class="consult-badge">${idx + 1}</span>`);
+        }
+        node.addEventListener("click", () => {
+          if (!mayDecide || !canPick) return;
+          const at = consultDraft.picks.indexOf(id);
+          if (at >= 0) consultDraft.picks.splice(at, 1);
+          else if (entry.pickMax === 1) consultDraft.picks = [id];
+          else if (consultDraft.picks.length < entry.pickMax) consultDraft.picks.push(id);
+          arenaConsultOverlay.render();
+        });
+        grid.appendChild(node);
+      });
+      const actionsEl = el.querySelector(".consult-actions");
+      if (entry.action === "any"){
+        Object.keys(CONSULT_ACTION_LABELS).forEach(key => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "btn" + (consultDraft.action === key ? " sel" : "");
+          b.textContent = CONSULT_ACTION_LABELS[key];
+          b.disabled = !mayDecide;
+          b.addEventListener("click", () => { consultDraft.action = key; arenaConsultOverlay.render(); });
+          actionsEl.appendChild(b);
+        });
+      }
+      const needsAction = entry.action === "any" && picks.length > 0 && !consultDraft.action;
+      const countOk = picks.length >= entry.pickMin && picks.length <= entry.pickMax;
+      const confirmBtn = el.querySelector("#consult-confirm-btn");
+      confirmBtn.textContent = picks.length === 0 ? "Bevestig (niets kiezen)" : `Bevestig (${picks.length})`;
+      confirmBtn.disabled = !mayDecide || !countOk || needsAction;
+      confirmBtn.title = !countOk ? `Kies ${nTxt} kaart(en)` : (needsAction ? "Kies eerst een bestemming" : "");
+      confirmBtn.addEventListener("click", () => {
+        const decision = { picks: picks.slice() };
+        if (entry.action === "any") decision.action = consultDraft.action;
+        const r = notifyRefusal(engine.resolveConsult(clientOwnedPlayerIdx(), entry.instanceId, decision));
+        if (r && r.ok) consultDraft = { entryId: null, picks: [], action: null };
+      });
+      const cancelBtn = el.querySelector("#consult-cancel-btn");
+      if (cancelBtn) cancelBtn.addEventListener("click", () => {
+        notifyRefusal(engine.cancelConsult(clientOwnedPlayerIdx(), entry.instanceId));
+      });
+      el.querySelector("#consult-close-btn").addEventListener("click", () => {
+        consultDismissedId = entry.instanceId;
+        consultOpenEntryId = null;
+        ctx.close();
+        renderArenaBoard();
+      });
+    }
+  });
+
+  // Opent/sluit de viewer op basis van de bovenste stack-entry (aangeroepen door renderArenaBoard).
+  function renderArenaConsultOverlay(){
+    const entry = topConsultEntry();
+    const want = (entry && clientMayDecideConsult(entry) && consultDismissedId !== entry.instanceId) ? entry : null;
+    if (!want){
+      if (consultOpenEntryId){ consultOpenEntryId = null; arenaConsultOverlay.close(); }
+      return;
+    }
+    if (consultOpenEntryId === want.instanceId){ arenaConsultOverlay.render(); return; }
+    consultOpenEntryId = want.instanceId;
+    arenaConsultOverlay.open({ entryId: want.instanceId });
+  }
+
+  function reopenConsultViewer(entryId){
+    consultDismissedId = null;
+    consultOpenEntryId = null;
+    renderArenaBoard();
+  }
+
+  // Handmatige consult: de speler van deze client (solo: de eigenaar van het paneel) bekijkt een zone; mag alles kiezen
+  // (0..alle kaarten) en kiest per keer de bestemming; Annuleer mag. count = getal of "all".
+  function startManualConsult(ownerIdx, zone, count){
+    const me = clientOwnedPlayerIdx();
+    const casterIdx = (me !== null && me !== undefined) ? me : ownerIdx;
+    notifyRefusal(engine.startConsult({
+      casterIdx: casterIdx, ownerIdx: ownerIdx, zone: zone, from: "top",
+      all: count === "all", count: count === "all" ? 0 : count,
+      action: "any", rest: "stay", pickMin: 0, pickMax: 99,
+      sourceLabel: "handmatig", manual: true
+    }));
+  }
+
+  function openDeckConsultChoice(ownerIdx){
+    openArenaChoice("🔍 Bekijk het deck", [
+      { key: "3", label: "Top 3" }, { key: "5", label: "Top 5" }, { key: "10", label: "Top 10" }, { key: "all", label: "Het hele deck" }
+    ], (key) => startManualConsult(ownerIdx, "deck", key === "all" ? "all" : parseInt(key, 10)));
+  }
+
+  function buildStackConsultNode(entry, isTop){
+    const wrap = document.createElement("div");
+    wrap.className = "arena-stack-card arena-stack-damage arena-stack-ability";
+    wrap.dataset.instanceId = entry.instanceId;
+    const caster = arena.players[entry.casterIdx], owner = arena.players[entry.ownerIdx];
+    const box = document.createElement("div");
+    box.className = "stack-damage-box";
+    box.style.setProperty("--dmg-color", "#9b59b6");
+    box.innerHTML = `
+      <div class="stack-damage-head">🔍 Consult: ${escapeHtml(entry.sourceLabel || "(naamloos)")}</div>
+      <div class="stack-damage-source">${escapeHtml(CONSULT_ZONE_NAMES[entry.zone] || entry.zone)} van ${escapeHtml(owner ? owner.name : "?")} — ${entry.shown.length} kaart(en)</div>
+      <div class="stack-damage-hint">door ${escapeHtml(caster ? caster.name : "?")}</div>
+    `;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn primary stack-resolve-btn";
+    if (isTop && clientMayDecideConsult(entry)){
+      btn.textContent = "Bekijk / kies";
+      btn.addEventListener("click", () => reopenConsultViewer(entry.instanceId));
+    } else {
+      btn.disabled = true;
+      btn.textContent = isTop ? `Wacht op ${caster ? caster.name : "?"}` : "Wacht op de kaart(en) erboven";
+    }
+    box.appendChild(btn);
+    wrap.appendChild(box);
+    return wrap;
   }
 
   // ---- Tandwiel-menu: test-instellingen (arena.settings), vlak onder de
@@ -2522,6 +2734,7 @@
         <label><input type="checkbox" id="setting-enterplayeffects" ${s.enterPlayEffects ? "checked" : ""}> Enter/Leave play — OnEnterPlay (kaart resolvet naar een in-play zone) en OnLeavePlay (permanent sterft door effect-schade, of verlaat het spel via een ReturnToHand/Banish-effect) afvuren; niet bij handmatig slepen</label>
         <label><input type="checkbox" id="setting-cardeffects" ${s.cardEffects ? "checked" : ""}> Kaart-effecten — effecten op een kaart in play uitvoeren: Exhaust/Ready, AddCounter/RemoveCounter en ReturnToHand/Banish, op de bronkaart of een gekozen kaart</label>
         <label><input type="checkbox" id="setting-reactiveeffects" ${s.reactiveEffects ? "checked" : ""}> Reactieve triggers — OnExhausted, OnReady, OnDamaged (permanent door een effect) en OnBanish (uit elke zone) van de kaart zelf afvuren; niet bij handmatige knoppen, en niet voor gebeurtenissen die door een reactief effect zelf veroorzaakt worden</label>
+        <label><input type="checkbox" id="setting-consulteffects" ${s.consultEffects ? "checked" : ""}> Consult — kaarten bekijken en kiezen uit deck/hand/discard/banished (effecten en handmatige 🔍-knoppen); een Consult wacht op de stack tot de speler kiest</label>
         <label><input type="checkbox" id="setting-abilityeffects" ${s.abilityEffects ? "checked" : ""}> Abilities — activated abilities (geen Attack) van kaarten in play activeren via een knop in de zoom-view (gaat op de stack)</label>
         <label><input type="checkbox" id="setting-inflicteffects" ${s.inflictEffects ? "checked" : ""}> Inflict-effecten — de actie Inflict (Burden in de discard van het slachtoffer, via de stack) automatisch uitvoeren</label>
         <div class="settings-hint">Uit = die controle/knop staat helemaal stil — handig om heel gericht één ding tegelijk te testen. De face-down instelling geldt enkel in netwerkmodus (verbonden met een tegenstander); in solo-test zie je sowieso altijd beide handen.</div>
@@ -2601,6 +2814,7 @@
             <div class="p-sidebar-header-row">
               <div class="mini-zone-label"><span>Deck</span>
                 <button type="button" class="btn shuffle-deck-btn">Schud</button>
+                <button type="button" class="btn consult-deck-btn" title="Bekijk de bovenste kaarten van dit deck">🔍</button>
               </div>
               <div class="mini-zone-label"><span>Discard (${p.discard.length})</span></div>
             </div>
@@ -2680,6 +2894,7 @@
 
       section.querySelector(".deck-pile").addEventListener("click", () => drawCard(playerIdx));
       section.querySelector(".shuffle-deck-btn").addEventListener("click", () => shuffleDeck(playerIdx));
+      section.querySelector(".consult-deck-btn").addEventListener("click", () => openDeckConsultChoice(playerIdx));
 
       const endTurnBtn = section.querySelector(".end-turn-btn");
       if (endTurnBtn) endTurnBtn.addEventListener("click", () => requestEndTurn(playerIdx));
@@ -2733,6 +2948,12 @@
         settingsPopoverEl.querySelector("#setting-resolveeffects").addEventListener("change", (e) => {
           ensureArenaSettings();
           arena.settings.resolveEffects = e.target.checked;
+          saveArena();
+          renderArenaBoard();
+        });
+        settingsPopoverEl.querySelector("#setting-consulteffects").addEventListener("change", (e) => {
+          ensureArenaSettings();
+          arena.settings.consultEffects = e.target.checked;
           saveArena();
           renderArenaBoard();
         });
@@ -2869,6 +3090,7 @@
     renderArenaToolbar();
     renderArenaZoomOverlay();
     renderArenaPileOverlay();
+    renderArenaConsultOverlay();
     renderArenaNoticeOverlay();
     renderStackArrows();
     scheduleStackArrows();
@@ -3040,6 +3262,7 @@
     if (ci.isDamage) return buildStackDamageNode(ci, isTop);
     if (ci.isInflict) return buildStackInflictNode(ci, isTop);
     if (ci.isAbility) return buildStackAbilityNode(ci, isTop);
+    if (ci.isConsult) return buildStackConsultNode(ci, isTop);
     const wrap = document.createElement("div");
     wrap.className = "arena-stack-card";
     wrap.dataset.instanceId = ci.instanceId;
@@ -3231,7 +3454,7 @@
       seen.add(key);
       out.push(t);
     };
-    if (ci.isInflict || ci.isAbility) return out;
+    if (ci.isInflict || ci.isAbility || ci.isConsult) return out;
     if (ci.isDamage){
       const zone = ARROW_ZONE_BY_TYPE[ci.damageType];
       if (zone && arena.players[ci.targetIdx]) add({ kind: "zone", playerIdx: ci.targetIdx, zone: zone, type: ci.damageType });
